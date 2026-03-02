@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhatsApp Agent Dashboard</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    /* ── Reset & Base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #0f1117;
+      --surface:  #1a1d27;
+      --surface2: #232636;
+      --border:   #2e3247;
+      --accent:   #25d366;  /* WhatsApp green */
+      --accent2:  #128c7e;
+      --blue:     #4a9eff;
+      --red:      #ff4a4a;
+      --yellow:   #ffd166;
+      --text:     #e8eaf0;
+      --muted:    #7b82a0;
+      --radius:   10px;
+      --font:     'Segoe UI', system-ui, -apple-system, sans-serif;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; }
+
+    /* ── Layout ── */
+    .layout { display: grid; grid-template-columns: 220px 1fr; grid-template-rows: 60px 1fr; height: 100vh; }
+    .topbar { grid-column: 1/3; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; gap: 16px; }
+    .topbar .logo { font-size: 20px; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }
+    .topbar .logo span { color: var(--text); }
+    .topbar .status-pill { display: flex; align-items: center; gap: 6px; background: var(--surface2); border-radius: 20px; padding: 4px 12px; font-size: 12px; margin-left: auto; }
+    .topbar .status-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); transition: background .3s; }
+    .topbar .status-pill .dot.connected { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+    .sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 16px 0; overflow-y: auto; }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; cursor: pointer; color: var(--muted); border-left: 3px solid transparent; transition: all .2s; font-size: 13px; }
+    .nav-item:hover { color: var(--text); background: var(--surface2); }
+    .nav-item.active { color: var(--accent); border-left-color: var(--accent); background: rgba(37,211,102,.07); }
+    .nav-item .icon { font-size: 16px; width: 20px; text-align: center; }
+    .main { overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+
+    /* ── Section visibility ── */
+    .section { display: none; }
+    .section.active { display: contents; }
+
+    /* ── Cards ── */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+    .card-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 14px; }
+
+    /* ── Stats row ── */
+    .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+    .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+    .stat-value { font-size: 26px; font-weight: 700; margin-top: 4px; }
+    .stat-value.green { color: var(--accent); }
+    .stat-value.blue  { color: var(--blue); }
+    .stat-value.yellow{ color: var(--yellow); }
+    .stat-value.red   { color: var(--red); }
+
+    /* ── Progress bars ── */
+    .bar-wrap { background: var(--surface2); border-radius: 4px; height: 8px; margin-top: 8px; overflow: hidden; }
+    .bar-fill  { height: 100%; border-radius: 4px; transition: width .6s ease; }
+    .bar-fill.green  { background: var(--accent); }
+    .bar-fill.yellow { background: var(--yellow); }
+    .bar-fill.red    { background: var(--red); }
+
+    /* ── Log feed ── */
+    .log-feed { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); height: 380px; overflow-y: auto; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 12px; padding: 10px; display: flex; flex-direction: column; gap: 2px; }
+    .log-entry { padding: 3px 6px; border-radius: 4px; line-height: 1.5; }
+    .log-entry:hover { background: var(--surface); }
+    .log-entry .ts   { color: var(--muted); margin-right: 8px; }
+    .log-entry.info  { color: #a8c4ff; }
+    .log-entry.warn  { color: var(--yellow); }
+    .log-entry.error { color: var(--red); }
+
+    /* ── Message list ── */
+    .msg-list { display: flex; flex-direction: column; gap: 10px; max-height: 420px; overflow-y: auto; }
+    .msg-bubble { background: var(--surface2); border-radius: 10px; padding: 10px 14px; max-width: 90%; }
+    .msg-bubble .meta { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    .msg-bubble .body { word-break: break-word; }
+    .msg-bubble.voice { border-left: 3px solid var(--blue); }
+    .msg-bubble.text  { border-left: 3px solid var(--accent); }
+
+    /* ── Forms ── */
+    .form-grid { display: grid; gap: 12px; }
+    .form-grid.cols2 { grid-template-columns: 1fr 1fr; }
+    label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+    input, textarea, select {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; padding: 8px 12px; color: var(--text); font-family: var(--font); font-size: 13px;
+      transition: border-color .2s;
+    }
+    input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+    textarea { resize: vertical; min-height: 80px; }
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 18px; border-radius: 7px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; transition: filter .2s; }
+    .btn:hover { filter: brightness(1.15); }
+    .btn.primary { background: var(--accent); color: #000; }
+    .btn.secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn.danger  { background: var(--red); color: #fff; }
+
+    /* ── Response box ── */
+    .response-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-size: 13px; min-height: 60px; white-space: pre-wrap; word-break: break-word; color: var(--text); margin-top: 12px; }
+    .response-box.hidden { display: none; }
+
+    /* ── QR overlay ── */
+    #qr-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.75); z-index: 100; align-items: center; justify-content: center; }
+    #qr-overlay.show { display: flex; }
+    #qr-box { background: white; padding: 24px; border-radius: 12px; text-align: center; color: #000; }
+    #qr-box pre { font-family: monospace; font-size: 7px; line-height: 1; }
+    #qr-box p { margin-top: 12px; font-size: 14px; }
+
+    /* ── Tables ── */
+    .tbl-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); letter-spacing: .7px; }
+    td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .badge.ok      { background: rgba(37,211,102,.15); color: var(--accent); }
+    .badge.fail    { background: rgba(255,74,74,.15);  color: var(--red); }
+    .badge.pending { background: rgba(255,209,102,.15);color: var(--yellow); }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Loading spinner ── */
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<!-- QR Code overlay shown when WhatsApp needs scanning -->
+<div id="qr-overlay">
+  <div id="qr-box">
+    <p><strong>Scan with WhatsApp</strong></p>
+    <pre id="qr-pre"></pre>
+    <p id="qr-hint">Open WhatsApp → Linked Devices → Link a Device</p>
+  </div>
+</div>
+
+<div class="layout">
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="logo">WhatsApp<span>Agent</span></div>
+    <div class="status-pill">
+      <div class="dot" id="status-dot"></div>
+      <span id="status-text">Connecting…</span>
+    </div>
+  </header>
+
+  <!-- Sidebar nav -->
+  <nav class="sidebar">
+    <div class="nav-item active" data-section="overview">
+      <span class="icon">📊</span> Overview
+    </div>
+    <div class="nav-item" data-section="messages">
+      <span class="icon">💬</span> Messages
+    </div>
+    <div class="nav-item" data-section="commands">
+      <span class="icon">⌨️</span> Commands
+    </div>
+    <div class="nav-item" data-section="email">
+      <span class="icon">📧</span> Email
+    </div>
+    <div class="nav-item" data-section="server">
+      <span class="icon">🖥</span> Server Tasks
+    </div>
+    <div class="nav-item" data-section="apichecks">
+      <span class="icon">🌐</span> API Health
+    </div>
+    <div class="nav-item" data-section="logs">
+      <span class="icon">📄</span> Logs
+    </div>
+    <div class="nav-item" data-section="schedule">
+      <span class="icon">⏰</span> Schedule
+    </div>
+    <div class="nav-item" data-section="contacts">
+      <span class="icon">📒</span> Contacts
+    </div>
+    <div class="nav-item" data-section="chats">
+      <span class="icon">💬</span> Chats
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main class="main" id="main-content">
+
+    <!-- ── OVERVIEW ─────────────────────────────────────────── -->
+    <div class="section active" id="sec-overview">
+
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-label">CPU Usage</div>
+          <div class="stat-value green" id="cpu-val">—%</div>
+          <div class="bar-wrap"><div class="bar-fill green" id="cpu-bar" style="width:0%"></div></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">RAM Usage</div>
+          <div class="stat-value yellow" id="ram-val">—%</div>
+          <div class="bar-wrap"><div class="bar-fill yellow" id="ram-bar" style="width:0%"></div></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Messages Recv</div>
+          <div class="stat-value blue" id="msg-count">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Commands Run</div>
+          <div class="stat-value green" id="cmd-count">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Emails Sent</div>
+          <div class="stat-value" id="email-count">0</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Recent Activity</div>
+        <div class="log-feed" id="activity-feed"></div>
+      </div>
+    </div>
+
+    <!-- ── MESSAGES ─────────────────────────────────────────── -->
+    <div class="section" id="sec-messages">
+      <div class="card">
+        <div class="card-title">Incoming Messages</div>
+        <div class="msg-list" id="msg-list">
+          <p style="color:var(--muted)">No messages yet…</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── COMMANDS ─────────────────────────────────────────── -->
+    <div class="section" id="sec-commands">
+      <div class="card">
+        <div class="card-title">Manual Command</div>
+        <p style="color:var(--muted);margin-bottom:14px;font-size:13px">Send a natural-language command through the Gemini processor.</p>
+        <div class="form-grid">
+          <div>
+            <label>Command</label>
+            <input type="text" id="cmd-input" placeholder="e.g. check disk usage, bitcoin price, weather in Paris…" />
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <button class="btn primary" id="cmd-btn">▷ Run Command</button>
+        </div>
+        <div class="response-box hidden" id="cmd-result"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Command History</div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Command</th><th>Result (preview)</th></tr></thead>
+            <tbody id="cmd-history"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── EMAIL ────────────────────────────────────────────── -->
+    <div class="section" id="sec-email">
+      <div class="card">
+        <div class="card-title">Send Email</div>
+        <div class="form-grid cols2">
+          <div>
+            <label>To</label>
+            <input type="email" id="email-to" placeholder="recipient@example.com" />
+          </div>
+          <div>
+            <label>Subject</label>
+            <input type="text" id="email-subject" placeholder="Subject line" />
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <label>Body</label>
+          <textarea id="email-body" placeholder="Email body…"></textarea>
+        </div>
+        <div style="margin-top:12px">
+          <button class="btn primary" id="email-btn">📤 Send Email</button>
+        </div>
+        <div class="response-box hidden" id="email-result"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Email History</div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>To</th><th>Subject</th><th>Status</th></tr></thead>
+            <tbody id="email-history"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SERVER ────────────────────────────────────────────── -->
+    <div class="section" id="sec-server">
+      <div class="stats-row" style="margin-bottom:4px">
+        <button class="btn secondary" onclick="fetchMetrics()">🔄 Refresh Metrics</button>
+        <button class="btn secondary" onclick="quickShell('uptime')">⏱ Uptime</button>
+        <button class="btn secondary" onclick="quickShell('df -h')">💾 Disk</button>
+        <button class="btn secondary" onclick="quickShell('ps aux --sort=-%cpu --no-headers | head -8')">📋 Processes</button>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Shell Command</div>
+        <div class="form-grid">
+          <div>
+            <label>Command (whitelisted only)</label>
+            <input type="text" id="shell-input" placeholder="e.g. df -h, ps aux, tail /var/log/syslog" />
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <button class="btn primary" id="shell-btn">⚡ Execute</button>
+        </div>
+        <div class="response-box hidden" id="shell-result"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">System Metrics</div>
+        <pre class="response-box" id="metrics-result" style="display:block">Loading…</pre>
+      </div>
+    </div>
+
+    <!-- ── API HEALTH ─────────────────────────────────────────── -->
+    <div class="section" id="sec-apichecks">
+      <div class="card">
+        <div class="card-title">API Health Check</div>
+        <div class="form-grid">
+          <div>
+            <label>URLs (one per line)</label>
+            <textarea id="api-urls" placeholder="https://api.example.com/health&#10;https://another.service.io/ping" style="min-height:100px"></textarea>
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <button class="btn primary" id="api-check-btn">🌐 Check Health</button>
+        </div>
+        <div class="response-box hidden" id="api-result"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Check History</div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>URL</th><th>Status</th><th>Result</th></tr></thead>
+            <tbody id="api-history"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── LOGS ──────────────────────────────────────────────── -->
+    <div class="section" id="sec-logs">
+      <div class="card" style="display:flex;align-items:center;gap:10px;margin-bottom:4px;padding:10px 18px">
+        <button class="btn secondary" onclick="clearLogFeed()">🗑 Clear</button>
+        <button class="btn secondary" onclick="pauseLogs()">⏸ Pause / Resume</button>
+        <input type="text" id="log-filter" placeholder="Filter logs…" style="max-width:240px;margin-left:auto" />
+      </div>
+      <div class="card" style="padding:0">
+        <div class="log-feed" id="log-feed" style="height:550px;border:none;border-radius:var(--radius)"></div>
+      </div>
+    </div>
+
+    <!-- ── SCHEDULE ──────────────────────────────────────────── -->
+    <div class="section" id="sec-schedule">
+      <div class="card">
+        <div class="card-title">⏰ Schedule a WhatsApp Message</div>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Message will be sent automatically at the chosen time via the connected WhatsApp account.</p>
+        <div class="form-grid cols2">
+          <div>
+            <label>Phone Number (with country code, no +)</label>
+            <input type="text" id="sch-to" placeholder="e.g. 94783811114" />
+          </div>
+          <div>
+            <label>Send At (date &amp; time)</label>
+            <input type="datetime-local" id="sch-time" />
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <label>Message</label>
+          <textarea id="sch-msg" placeholder="Type the WhatsApp message to send…" style="min-height:100px"></textarea>
+        </div>
+        <div style="margin-top:14px;display:flex;align-items:center;gap:12px">
+          <button class="btn primary" id="sch-btn">⏰ Schedule Message</button>
+          <span id="sch-result" style="font-size:13px"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Scheduled Messages</div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>To</th><th>Message</th><th>Send At</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody id="sch-table"></tbody>
+          </table>
+        </div>
+        <p id="sch-empty" style="color:var(--muted);font-size:13px;margin-top:10px">No scheduled messages yet.</p>
+      </div>
+    </div>
+
+    <!-- ── CONTACTS ─────────────────────────────────────────── -->
+    <div class="section" id="sec-contacts">
+
+      <div class="card">
+        <div class="card-title">🔍 Search Contacts</div>
+        <div style="display:flex;gap:10px;align-items:flex-end">
+          <div style="flex:1">
+            <label>Name or phone number</label>
+            <input type="text" id="contact-search" placeholder="Type a name or number…" />
+          </div>
+          <button class="btn primary" id="contact-search-btn" style="white-space:nowrap">🔍 Search</button>
+        </div>
+        <p style="color:var(--muted);font-size:12px;margin-top:8px">Leave blank and search to list all contacts.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-title">💬 Ping Message</div>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:10px">This message is sent every time you press a Ping button below.</p>
+        <div style="display:flex;gap:10px;align-items:flex-end">
+          <div style="flex:1">
+            <label>Ping message</label>
+            <input type="text" id="ping-msg" placeholder="e.g. Hey! Just checking in 👋" value="Hey! 👋" />
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Results <span id="contact-count" style="color:var(--muted);font-weight:400"></span></div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Number</th><th>Action</th></tr></thead>
+            <tbody id="contact-table"></tbody>
+          </table>
+        </div>
+        <p id="contact-empty" style="color:var(--muted);font-size:13px;margin-top:10px">Search above to find contacts.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📬 Ping History</div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>To</th><th>Message</th><th>Status</th></tr></thead>
+            <tbody id="ping-history"></tbody>
+          </table>
+        </div>
+        <p id="ping-empty" style="color:var(--muted);font-size:13px;margin-top:10px">No pings sent yet.</p>
+      </div>
+
+    </div>
+
+    <!-- ── CHATS ──────────────────────────────────────────── -->
+    <div class="section" id="sec-chats">
+
+      <div class="card">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+          💬 Received Messages
+          <span style="display:flex;gap:10px;align-items:center">
+            <span id="chats-count" style="color:var(--muted);font-size:12px;font-weight:400"></span>
+            <button class="btn" id="chats-clear-btn" style="padding:4px 12px;font-size:12px">🗑 Clear</button>
+          </span>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Sender</th><th>Content</th></tr></thead>
+            <tbody id="chats-table"></tbody>
+          </table>
+        </div>
+        <p id="chats-empty" style="color:var(--muted);font-size:13px;margin-top:10px">No messages received yet.</p>
+      </div>
+
+    </div>
+
+  </main>
+</div>
+
+<script>
+/* ── Socket.IO ──────────────────────────────────────────────── */
+const socket = io();
+
+/* ── counters ──────────────────────────────────────────────── */
+let msgCount   = 0;
+let cmdCount   = 0;
+let emailCount = 0;
+let logsPaused = false;
+
+/* ── helpers ────────────────────────────────────────────────── */
+function ts(d = Date.now()) {
+  return new Date(d).toLocaleTimeString();
+}
+
+function trunc(s, n = 80) {
+  s = String(s || '');
+  return s.length > n ? s.slice(0, n) + '…' : s;
+}
+
+function showEl(id) { const el = document.getElementById(id); if (el) el.classList.remove('hidden'); }
+function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+
+/* ── nav routing ────────────────────────────────────────────── */
+const navItems = document.querySelectorAll('.nav-item');
+const sections = document.querySelectorAll('.section');
+
+navItems.forEach(item => {
+  item.addEventListener('click', () => {
+    navItems.forEach(n => n.classList.remove('active'));
+    sections.forEach(s => s.classList.remove('active'));
+    item.classList.add('active');
+    document.getElementById('sec-' + item.dataset.section).classList.add('active');
+  });
+});
+
+/* ── connection status ──────────────────────────────────────── */
+socket.on('status', ({ connected, message }) => {
+  const dot  = document.getElementById('status-dot');
+  const text = document.getElementById('status-text');
+  dot.className  = 'dot' + (connected ? ' connected' : '');
+  text.textContent = message || (connected ? 'Connected' : 'Disconnected');
+});
+
+socket.on('connect',    () => setText('status-text', 'Socket connected'));
+socket.on('disconnect', () => { document.getElementById('status-dot').className = 'dot'; setText('status-text', 'Disconnected'); });
+
+/* ── QR code ────────────────────────────────────────────────── */
+socket.on('qr', qr => {
+  document.getElementById('qr-pre').textContent = qr;
+  document.getElementById('qr-overlay').classList.add('show');
+});
+socket.on('status', ({ connected }) => {
+  if (connected) document.getElementById('qr-overlay').classList.remove('show');
+});
+
+/* ── live metrics ───────────────────────────────────────────── */
+socket.on('metrics', ({ cpu, ram }) => {
+  setText('cpu-val', cpu + '%');
+  setText('ram-val', ram + '%');
+  const cpuBar = document.getElementById('cpu-bar');
+  const ramBar = document.getElementById('ram-bar');
+  cpuBar.style.width = cpu + '%';
+  ramBar.style.width = ram + '%';
+  cpuBar.className = 'bar-fill ' + (cpu > 80 ? 'red' : cpu > 50 ? 'yellow' : 'green');
+  ramBar.className = 'bar-fill ' + (ram > 80 ? 'red' : ram > 60 ? 'yellow' : 'green');
+});
+
+/* ── incoming messages ──────────────────────────────────────── */
+socket.on('message', msg => {
+  msgCount++;
+  setText('msg-count', msgCount);
+
+  const list = document.getElementById('msg-list');
+  if (list.querySelector('p')) list.innerHTML = '';
+
+  const div = document.createElement('div');
+  div.className = 'msg-bubble ' + (msg.type === 'voice' || msg.type === 'voice_transcript' ? 'voice' : 'text');
+  div.innerHTML = `<div class="meta">${msg.from} &nbsp;·&nbsp; ${ts(msg.ts)}</div><div class="body">${escHtml(msg.body)}</div>`;
+  list.prepend(div);
+
+  // also push to activity feed
+  addActivity(`💬 ${msg.from}: ${trunc(msg.body)}`);
+});
+
+/* ── command results ────────────────────────────────────────── */
+socket.on('command_result', ({ text, reply, ts: t }) => {
+  cmdCount++;
+  setText('cmd-count', cmdCount);
+  addCmdHistory(text, reply, t);
+  addActivity(`⌨️ CMD: ${trunc(text)}`);
+});
+
+/* ── logs ───────────────────────────────────────────────────── */
+socket.on('log', entry => {
+  appendLog(entry);
+});
+
+socket.on('history', entries => {
+  entries.forEach(appendLog);
+});
+
+function appendLog(entry) {
+  if (logsPaused) return;
+  const filterVal = document.getElementById('log-filter').value.toLowerCase();
+
+  const msg  = entry.message || JSON.stringify(entry);
+  if (filterVal && !msg.toLowerCase().includes(filterVal)) return;
+
+  const div  = document.createElement('div');
+  div.className = 'log-entry ' + (entry.level || 'info');
+  div.innerHTML = `<span class="ts">${entry.timestamp || ts()}</span>${escHtml(trunc(msg, 300))}`;
+
+  const feed = document.getElementById('log-feed');
+  feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+
+  // activity feed (errors & warnings only)
+  if (entry.level === 'error') addActivity(`❗ ${trunc(msg, 80)}`);
+
+  // trim to 1000 entries
+  while (feed.children.length > 1000) feed.removeChild(feed.firstChild);
+}
+
+/* ── activity feed ──────────────────────────────────────────── */
+function addActivity(text) {
+  const div  = document.createElement('div');
+  div.className = 'log-entry';
+  div.innerHTML = `<span class="ts">${ts()}</span>${escHtml(text)}`;
+  const feed = document.getElementById('activity-feed');
+  feed.prepend(div);
+  while (feed.children.length > 200) feed.removeChild(feed.lastChild);
+}
+
+/* ── command history table ──────────────────────────────────── */
+function addCmdHistory(cmd, result, t) {
+  const tbody = document.getElementById('cmd-history');
+  const row   = tbody.insertRow(0);
+  row.innerHTML = `<td>${ts(t)}</td><td>${escHtml(trunc(cmd, 60))}</td><td>${escHtml(trunc(result, 100))}</td>`;
+}
+
+/* ── email history table ────────────────────────────────────── */
+function addEmailHistory(to, subject, ok) {
+  const tbody = document.getElementById('email-history');
+  const row   = tbody.insertRow(0);
+  row.innerHTML = `<td>${ts()}</td><td>${escHtml(to)}</td><td>${escHtml(subject)}</td><td><span class="badge ${ok ? 'ok' : 'fail'}">${ok ? 'Sent' : 'Failed'}</span></td>`;
+}
+
+/* ── api check history ──────────────────────────────────────── */
+function addApiHistory(url, status, result) {
+  const tbody = document.getElementById('api-history');
+  const row   = tbody.insertRow(0);
+  const ok    = status >= 200 && status < 400;
+  row.innerHTML = `<td>${ts()}</td><td>${escHtml(url)}</td><td>${status || '—'}</td><td><span class="badge ${ok ? 'ok' : 'fail'}">${ok ? 'OK' : 'FAIL'}</span></td>`;
+}
+
+/* ── button handlers ─────────────────────────────────────────── */
+document.getElementById('cmd-btn').addEventListener('click', async () => {
+  const text = document.getElementById('cmd-input').value.trim();
+  if (!text) return;
+  const btn = document.getElementById('cmd-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Running…';
+  const res = document.getElementById('cmd-result');
+  res.classList.remove('hidden');
+  res.textContent = 'Processing…';
+
+  try {
+    const r = await apiFetch('/api/command', 'POST', { text });
+    res.textContent = r.reply || r.error || JSON.stringify(r);
+  } catch (e) {
+    res.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '▷ Run Command';
+  }
+});
+
+document.getElementById('email-btn').addEventListener('click', async () => {
+  const to      = document.getElementById('email-to').value.trim();
+  const subject = document.getElementById('email-subject').value.trim();
+  const body    = document.getElementById('email-body').value.trim();
+  if (!to) return alert('Recipient address is required.');
+  const btn = document.getElementById('email-btn');
+  btn.disabled = true;
+  const res = document.getElementById('email-result');
+  res.classList.remove('hidden');
+  res.textContent = 'Sending…';
+
+  try {
+    const r = await apiFetch('/api/email', 'POST', { to, subject, body });
+    res.textContent = r.success ? '✅ Email sent!' : '❌ ' + r.error;
+    addEmailHistory(to, subject, r.success);
+    emailCount++;
+    setText('email-count', emailCount);
+  } catch (e) {
+    res.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('shell-btn').addEventListener('click', async () => {
+  const cmd = document.getElementById('shell-input').value.trim();
+  if (!cmd) return;
+  runShell(cmd);
+});
+
+document.getElementById('api-check-btn').addEventListener('click', async () => {
+  const raw  = document.getElementById('api-urls').value.trim();
+  const urls = raw.split('\n').map(u => u.trim()).filter(Boolean);
+  if (!urls.length) return alert('Enter at least one URL.');
+  const btn = document.getElementById('api-check-btn');
+  btn.disabled = true;
+  const res = document.getElementById('api-result');
+  res.classList.remove('hidden');
+  res.textContent = 'Checking…';
+
+  try {
+    const r = await apiFetch('/api/health-check', 'POST', { urls });
+    res.textContent = r.result || r.error;
+  } catch (e) {
+    res.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* ── shell helpers ─────────────────────────────────────────── */
+async function runShell(cmd) {
+  const btn = document.getElementById('shell-btn');
+  btn.disabled = true;
+  const res = document.getElementById('shell-result');
+  res.classList.remove('hidden');
+  res.textContent = 'Running…';
+
+  try {
+    const r = await apiFetch('/api/shell', 'POST', { command: cmd });
+    res.textContent = r.output || r.error;
+    cmdCount++;
+    setText('cmd-count', cmdCount);
+  } catch (e) {
+    res.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function quickShell(cmd) {
+  document.getElementById('shell-input').value = cmd;
+  runShell(cmd);
+}
+
+/* ── fetch metrics ────────────────────────────────────────── */
+async function fetchMetrics() {
+  const box = document.getElementById('metrics-result');
+  box.textContent = 'Loading…';
+  try {
+    const r = await apiFetch('/api/system', 'GET');
+    box.textContent = r.metrics || JSON.stringify(r, null, 2);
+  } catch (e) {
+    box.textContent = 'Error: ' + e.message;
+  }
+}
+
+/* ── log controls ─────────────────────────────────────────── */
+function clearLogFeed() { document.getElementById('log-feed').innerHTML = ''; }
+function pauseLogs()    { logsPaused = !logsPaused; }
+
+document.getElementById('log-filter').addEventListener('input', () => {
+  // filter is applied on next incoming log; existing visible ones are not retroactively filtered
+});
+
+/* ── API fetch helper ─────────────────────────────────────── */
+async function apiFetch(url, method = 'GET', body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(url, opts);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/* ── XSS guard ───────────────────────────────────────────── */
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/* ── init ────────────────────────────────────────────────── */
+fetchMetrics();
+apiFetch('/api/status').then(r => addActivity(`🚀 Dashboard connected — server uptime: ${Math.floor(r.uptime)}s`)).catch(() => {});
+
+/* ── Schedule ────────────────────────────────────────────── */
+// Set the datetime-local default to "now + 5 minutes"
+(function setDefaultTime() {
+  const inp = document.getElementById('sch-time');
+  if (!inp) return;
+  const d = new Date(Date.now() + 5 * 60_000);
+  // format: YYYY-MM-DDTHH:MM
+  const pad = n => String(n).padStart(2, '0');
+  inp.value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+})();
+
+document.getElementById('sch-btn').addEventListener('click', async () => {
+  const to      = document.getElementById('sch-to').value.trim();
+  const message = document.getElementById('sch-msg').value.trim();
+  const sendAt  = document.getElementById('sch-time').value;
+  const result  = document.getElementById('sch-result');
+
+  if (!to)      { result.textContent = '❌ Phone number is required.'; result.style.color = 'var(--red)'; return; }
+  if (!message) { result.textContent = '❌ Message is required.';      result.style.color = 'var(--red)'; return; }
+  if (!sendAt)  { result.textContent = '❌ Send time is required.';    result.style.color = 'var(--red)'; return; }
+
+  const btn = document.getElementById('sch-btn');
+  btn.disabled = true;
+  result.textContent = 'Scheduling…';
+  result.style.color = 'var(--muted)';
+
+  try {
+    const r = await apiFetch('/api/schedule', 'POST', { to, message, sendAt: new Date(sendAt).toISOString() });
+    if (r.success) {
+      result.textContent = `✅ Scheduled! (ID #${r.schedule.id})`;
+      result.style.color = 'var(--accent)';
+      document.getElementById('sch-msg').value = '';
+      renderScheduleTable(r.schedule ? null : null); // table will update via socket
+    } else {
+      result.textContent = '❌ ' + (r.error || 'Unknown error');
+      result.style.color = 'var(--red)';
+    }
+  } catch (e) {
+    result.textContent = '❌ ' + e.message;
+    result.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function cancelSchedule(id) {
+  try {
+    await apiFetch(`/api/schedule/${id}`, 'DELETE');
+  } catch (e) {
+    alert('Cancel failed: ' + e.message);
+  }
+}
+
+function renderScheduleTable(list) {
+  const tbody = document.getElementById('sch-table');
+  const empty = document.getElementById('sch-empty');
+  if (!list || !list.length) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  tbody.innerHTML = list.slice().reverse().map(s => {
+    const statusColors = { pending: 'pending', sent: 'ok', failed: 'fail', cancelled: 'fail', sending: 'pending' };
+    const badge = `<span class="badge ${statusColors[s.status] || 'pending'}">${s.status}</span>`;
+    const cancel = (s.status === 'pending')
+      ? `<button class="btn danger" style="padding:4px 10px;font-size:11px" onclick="cancelSchedule(${s.id})">✕ Cancel</button>`
+      : '—';
+    return `<tr>
+      <td>#${s.id}</td>
+      <td>${escHtml(s.to)}</td>
+      <td style="max-width:250px;word-break:break-word">${escHtml(trunc(s.message, 80))}</td>
+      <td>${new Date(s.sendAt).toLocaleString()}</td>
+      <td>${badge}</td>
+      <td>${cancel}</td>
+    </tr>`;
+  }).join('');
+}
+
+// Real-time updates from server
+socket.on('schedule_update', renderScheduleTable);
+
+// Load existing schedules on connect
+apiFetch('/api/schedule').then(r => renderScheduleTable(r.schedules)).catch(() => {});
+
+/* ── Contacts & Ping ────────────────────────────────────── */
+let _contactResults = [];
+
+async function searchContacts() {
+  const q   = document.getElementById('contact-search').value.trim();
+  const btn = document.getElementById('contact-search-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  document.getElementById('contact-empty').textContent = 'Searching…';
+  document.getElementById('contact-table').innerHTML = '';
+  document.getElementById('contact-count').textContent = '';
+
+  try {
+    const r = await apiFetch('/api/contacts?q=' + encodeURIComponent(q));
+    _contactResults = r.contacts || [];
+    renderContactTable(_contactResults);
+  } catch (e) {
+    document.getElementById('contact-empty').textContent = '❌ ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🔍 Search';
+  }
+}
+
+function renderContactTable(contacts) {
+  const tbody = document.getElementById('contact-table');
+  const empty = document.getElementById('contact-empty');
+  const count = document.getElementById('contact-count');
+
+  if (!contacts.length) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    empty.textContent = 'No contacts found.';
+    count.textContent = '';
+    return;
+  }
+
+  empty.style.display = 'none';
+  count.textContent = `(${contacts.length})`;
+  tbody.innerHTML = contacts.map(c => `
+    <tr>
+      <td>${escHtml(c.name || '—')}</td>
+      <td style="font-family:monospace">${escHtml(c.number)}</td>
+      <td>
+        <button class="btn primary" style="padding:5px 14px;font-size:12px"
+          onclick="pingContact('${escHtml(c.id)}','${escHtml(c.name || c.number)}')">
+          📨 Ping
+        </button>
+      </td>
+    </tr>`).join('');
+}
+
+async function pingContact(id, label) {
+  const message = document.getElementById('ping-msg').value.trim();
+  if (!message) { alert('Set a ping message first.'); return; }
+
+  const btn = event.target;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Sending…';
+
+  try {
+    const r = await apiFetch('/api/ping', 'POST', { to: id, message, count: 5 });
+    addPingHistory(label || id, message, r.success, null, r.count || 5);
+    btn.innerHTML = '✅ ×5 Sent!';
+    setTimeout(() => { btn.disabled = false; btn.innerHTML = '📨 Ping'; }, 3000);
+  } catch (e) {
+    addPingHistory(label || id, message, false, e.message, 0);
+    btn.innerHTML = '❌ Failed';
+    setTimeout(() => { btn.disabled = false; btn.innerHTML = '📨 Ping'; }, 2000);
+  }
+}
+
+function addPingHistory(to, message, ok, err, count) {
+  const tbody = document.getElementById('ping-history');
+  const empty = document.getElementById('ping-empty');
+  empty.style.display = 'none';
+  const row = tbody.insertRow(0);
+  const countLabel = (count && count > 1) ? ` ×${count}` : '';
+  row.innerHTML = `
+    <td>${ts()}</td>
+    <td>${escHtml(to)}</td>
+    <td style="max-width:260px;word-break:break-word">${escHtml(trunc(message,80))}</td>
+    <td><span class="badge ${ok ? 'ok' : 'fail'}">${ok ? 'Sent' + countLabel : 'Failed' + (err ? ': ' + trunc(err,40) : '')}</span></td>`;
+}
+
+// Real-time ping events from other dashboard tabs
+socket.on('ping_sent', entry => {
+  addPingHistory(entry.to, entry.message, true, null, entry.count || 5);
+});
+
+// Wire up search button and Enter key
+document.getElementById('contact-search-btn').addEventListener('click', searchContacts);
+document.getElementById('contact-search').addEventListener('keydown', e => {
+  if (e.key === 'Enter') searchContacts();
+});
+
+/* ── CHATS section ───────────────────────────────────────────── */
+const chatsData = [];
+
+function renderChatRow(msg, prepend = false) {
+  const tbody = document.getElementById('chats-table');
+  const empty = document.getElementById('chats-empty');
+  if (empty) empty.style.display = 'none';
+  const row = document.createElement('tr');
+  let content = '';
+  if (msg.mediaUrl) {
+    if (msg.type === 'image') {
+      content = `<a href="${escHtml(msg.mediaUrl)}" target="_blank"><img src="${escHtml(msg.mediaUrl)}" style="max-height:80px;max-width:160px;border-radius:6px;cursor:pointer" /></a>`;
+    } else if (msg.type === 'audio' || msg.type === 'ptt') {
+      content = `<audio controls src="${escHtml(msg.mediaUrl)}" style="height:32px;max-width:220px"></audio>`;
+    } else {
+      content = `<a href="${escHtml(msg.mediaUrl)}" target="_blank">[${escHtml(msg.type)}]</a>`;
+    }
+  } else {
+    content = `<span style="word-break:break-word;max-width:400px;display:inline-block">${escHtml(trunc(msg.body || '', 300))}</span>`;
+  }
+  row.innerHTML = `
+    <td style="white-space:nowrap;color:var(--muted);font-size:12px">${ts(msg.ts)}</td>
+    <td style="white-space:nowrap;font-weight:600">${escHtml(msg.sender || msg.senderId || '')}</td>
+    <td>${content}</td>`;
+  if (prepend && tbody.firstChild) {
+    tbody.insertBefore(row, tbody.firstChild);
+  } else {
+    tbody.appendChild(row);
+  }
+}
+
+function updateChatsCount() {
+  const el = document.getElementById('chats-count');
+  if (el) el.textContent = chatsData.length + ' message' + (chatsData.length !== 1 ? 's' : '');
+}
+
+async function loadChats() {
+  try {
+    const res  = await fetch('/api/chats?limit=200');
+    const data = await res.json();
+    chatsData.length = 0;
+    chatsData.push(...(data.messages || []));
+    const tbody = document.getElementById('chats-table');
+    tbody.innerHTML = '';
+    const empty = document.getElementById('chats-empty');
+    if (chatsData.length === 0) {
+      if (empty) empty.style.display = 'block';
+    } else {
+      if (empty) empty.style.display = 'none';
+      [...chatsData].reverse().forEach(m => renderChatRow(m, false));
+    }
+    updateChatsCount();
+  } catch (e) { console.error('loadChats', e); }
+}
+
+socket.on('new_chat_message', msg => {
+  chatsData.push(msg);
+  renderChatRow(msg, true);  // newest at top
+  updateChatsCount();
+});
+
+document.getElementById('chats-clear-btn').addEventListener('click', () => {
+  document.getElementById('chats-table').innerHTML = '';
+  chatsData.length = 0;
+  updateChatsCount();
+  const empty = document.getElementById('chats-empty');
+  if (empty) empty.style.display = 'block';
+});
+
+// Load chat history when section becomes active
+navItems.forEach(item => {
+  item.addEventListener('click', () => {
+    if (item.dataset.section === 'chats') loadChats();
+  });
+});
+</script>
+</body>
+</html>

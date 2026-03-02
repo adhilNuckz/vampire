@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Environment secrets
+.env
+
+# WhatsApp Web session data
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Logs
+logs/
+*.log
+
+# Temp audio files
+/tmp/wa_agent_audio/
+
+# Saved media from WhatsApp
+public/media/*
+!public/media/.gitkeep
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
