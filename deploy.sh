@@ -95,7 +95,7 @@ cd "$INSTALL_DIR"
 #  7. npm install
 # ─────────────────────────────────────────────────────────────────────────────
 info "Installing npm dependencies…"
-npm install --omit=dev --quiet
+npm install --quiet
 success "Dependencies installed"
 
 # ─────────────────────────────────────────────────────────────────────────────
