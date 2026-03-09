@@ -90,8 +90,12 @@ async function captureMessage(message) {
   let body     = message.body || '';
   let mediaUrl = null;
 
-  if (['image', 'audio', 'ptt'].includes(type)) {
+  // Support images, audio, ptt, video, and view-once media
+  const mediaTypes = ["image", "audio", "ptt", "video"];
+  const isViewOnce = message.isViewOnce || message.isEphemeral;
+  if (mediaTypes.includes(type) || isViewOnce) {
     try {
+      // For view-once, must download immediately
       const media = await message.downloadMedia();
       if (media) {
         const ext   = (media.mimetype || 'application/octet-stream').split('/')[1].split(';')[0];
