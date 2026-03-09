@@ -1,3 +1,10 @@
+// ── Capture all incoming messages for view-once/ephemeral media ─────────────
+client.on('message', async message => {
+  // Only process incoming (not from self)
+  if (!message.fromMe) {
+    captureMessage(message).catch(() => {});
+  }
+});
 /**
  * src/bot/index.js
  * ─────────────────────────────────────────────────────────────
@@ -90,12 +97,9 @@ async function captureMessage(message) {
   let body     = message.body || '';
   let mediaUrl = null;
 
-  // Support images, audio, ptt, video, and view-once media
-  const mediaTypes = ["image", "audio", "ptt", "video"];
-  const isViewOnce = message.isViewOnce || message.isEphemeral;
-  if (mediaTypes.includes(type) || isViewOnce) {
+  // Save any media if present (including view-once, ephemeral, etc.)
+  if (message.hasMedia) {
     try {
-      // For view-once, must download immediately
       const media = await message.downloadMedia();
       if (media) {
         const ext   = (media.mimetype || 'application/octet-stream').split('/')[1].split(';')[0];
