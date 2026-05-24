@@ -19,49 +19,18 @@
 
 'use strict';
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { logger }   = require('../utils/logger');
 const { sendEmail, getInbox } = require('./email');
 const tasks         = require('./serverTasks');
 require('dotenv').config();
 
-// ── Gemini client ─────────────────────────────────────────────────────────────
-let _model = null;
+// ── Gemini disabled shim ─────────────────────────────────────────────────────
+// All AI / LLM behaviour is turned off for this build. Any
+// attempt to use Gemini-backed features will return a clear
+// "disabled" message instead of calling the external API.
 
-function getModel() {
-  if (_model) return _model;
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not set in .env');
-  _model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
-  return _model;
-}
-
-// ── Gemini call with auto-retry on 429 ───────────────────────────────────────
-async function callGemini(contents, maxRetries = 2) {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await getModel().generateContent(contents);
-    } catch (err) {
-      const is429 = err.message?.includes('429') || err.status === 429;
-
-      // parse suggested retry delay from error message e.g. "retryDelay":"27s"
-      const delayMatch = err.message?.match(/"retryDelay"\s*:\s*"(\d+)s"/);
-      const delaySec   = delayMatch ? parseInt(delayMatch[1]) + 2 : 30;
-
-      if (is429 && attempt < maxRetries) {
-        logger.warn(`Gemini 429 – waiting ${delaySec}s then retrying (attempt ${attempt + 1}/${maxRetries})…`);
-        await new Promise(r => setTimeout(r, delaySec * 1000));
-        continue;
-      }
-
-      // Daily quota exhausted (limit: 0) — give user a clear message
-      if (is429 && err.message?.includes('limit: 0')) {
-        throw new Error('Daily Gemini quota exhausted. Resets at midnight PT. Try again later or get a new API key at https://aistudio.google.com/');
-      }
-
-      throw err;
-    }
-  }
+async function callGemini() {
+  throw new Error('Gemini-based AI features are currently disabled.');
 }
 
 // ── Classification prompt ─────────────────────────────────────────────────────
@@ -101,29 +70,14 @@ User message: `;
 
 // ── Classify via Gemini ───────────────────────────────────────────────────────
 async function classifyIntent(text) {
-  try {
-    const result  = await callGemini(CLASSIFICATION_PROMPT + JSON.stringify(text));
-    const raw     = result.response.text().trim();
-    const cleaned = raw.replace(/^```[a-z]*\n?/i, '').replace(/```$/i, '').trim();
-    return JSON.parse(cleaned);
-  } catch (err) {
-    logger.warn(`Gemini classification failed: ${err.message}`);
-    return { intent: 'unknown', params: { reason: err.message }, display: '' };
-  }
+  logger.warn('classifyIntent called while AI is disabled. Falling back to "unknown" intent.');
+  return { intent: 'unknown', params: { reason: 'AI disabled' }, display: '' };
 }
 
 // ── Transcribe voice audio via Gemini STT ────────────────────────────────────
 async function transcribeAudio(audioBuffer, mimeType = 'audio/wav') {
-  try {
-    const result = await callGemini([
-      { inlineData: { mimeType, data: audioBuffer.toString('base64') } },
-      'Transcribe the audio exactly. Return only the transcribed text, nothing else.'
-    ]);
-    return result.response.text().trim();
-  } catch (err) {
-    logger.error(`Audio transcription failed: ${err.message}`);
-    return '';
-  }
+  logger.warn('Voice transcription requested but AI is disabled.');
+  return '';
 }
 
 // ── Help text ─────────────────────────────────────────────────────────────────
@@ -226,12 +180,7 @@ const handlers = {
 
   async chat({ question }) {
     if (!question) return '❌ Usage: !ask <your question>';
-    try {
-      const result = await callGemini(question);
-      return result.response.text().trim();
-    } catch (err) {
-      return `❌ ${err.message}`;
-    }
+    return '🤖 AI chat is currently disabled.';
   },
 
   async unknown({ reason }) {
@@ -331,7 +280,7 @@ function matchKeyword(text) {
 async function processMessage(text, senderId) {
   logger.info(`Processing from ${senderId}: "${text.slice(0, 100)}"`);
 
-  // 1. Try keyword fast-path first (zero Gemini quota used)
+  // 1. Keyword fast-path (server / tools / email etc.)
   const kw = matchKeyword(text.trim());
   if (kw) {
     logger.info(`Keyword match: ${kw.intent}`);
@@ -343,17 +292,9 @@ async function processMessage(text, senderId) {
     }
   }
 
-  // 2. Fall back to Gemini for natural-language queries
-  const { intent, params, display } = await classifyIntent(text);
-  logger.info(`Gemini intent: ${intent} | ${display}`);
-
-  const handler = handlers[intent] || handlers.unknown;
-  try {
-    return await handler(params || {});
-  } catch (err) {
-    logger.error(`Handler error [${intent}]: ${err.message}`);
-    return `❌ Error processing request: ${err.message}`;
-  }
+  // 2. Natural-language AI routing is disabled
+  logger.info('AI routing is disabled; returning help hint.');
+  return '🤖 Command processing via AI is disabled in this build. Use explicit commands like "!help", "!system metrics", or "!email".';
 }
 
 module.exports = { processMessage, classifyIntent, transcribeAudio };

@@ -81,13 +81,21 @@ const MEDIA_DIR = path.join(__dirname, '../../public/media');
 fs.ensureDirSync(MEDIA_DIR);
 
 async function captureMessage(message) {
-  const senderId = parseSenderId(message.from);
+  if (
+    message.from?.endsWith('@newsletter') ||
+    message.type === 'newsletter' ||
+    message.author === null && message.from?.endsWith('@broadcast')
+  ) return;
+
+  const chatJid = message.fromMe ? message.to : message.from;
+  const conversationId = parseSenderId(chatJid);
+
   let contact;
   try { contact = await message.getContact(); } catch (_) { contact = {}; }
-  const name   = contact.pushname || contact.name || senderId;
-  const ts     = message.timestamp ? message.timestamp * 1000 : Date.now();
-  const type   = message.type;
-  let body     = message.body || '';
+  const name = contact.pushname || contact.name || conversationId;
+  const ts = message.timestamp ? message.timestamp * 1000 : Date.now();
+  const type = message.type;
+  let body = message.body || '';
   let mediaUrl = null;
 
   // Save any media if present (including view-once, ephemeral, etc.)
@@ -106,7 +114,17 @@ async function captureMessage(message) {
     }
   }
 
-  const entry = addChatMessage({ sender: name, senderId, body, type, mediaUrl, ts });
+  const displayName = message.fromMe ? 'Me' : name;
+
+  const entry = await addChatMessage({
+    msgId: message.id._serialized,
+    sender: displayName,
+    senderId: conversationId,
+    body,
+    type,
+    mediaUrl,
+    ts
+  });
   logBus.emit('chat_message', entry);
 }
 
@@ -181,10 +199,23 @@ client.on('disconnected', reason => {
   setTimeout(() => client.initialize(), 10_000);
 });
 
+// ── Message revocation (anti-delete) handler ────────────────────────
+client.on('message_revoke_everyone', async (after, before) => {
+  try {
+    const msgId = after.id._serialized;
+    logger.info(`Message revoked: ${msgId}`);
+    const { revokeMessage } = require('../services/chatStore');
+    const updated = await revokeMessage(msgId);
+    if (updated) {
+      logBus.emit('chat_message_revoked', { msgId, deletedAt: updated.deletedAt });
+    }
+  } catch (err) {
+    logger.error(`Error handling message revoke: ${err.message}`);
+  }
+});
+
 // ── message handler ───────────────────────────────────────────────────────────
 client.on('message_create', async message => {
-    // skip outgoing messages that aren't commands (prevents processing bot's own replies)
-    if (message.fromMe && !message.body?.startsWith(CMD_PREFIX)) return;
   try {
     // Skip WhatsApp Channels / Newsletters — their chat object crashes on getChat()
     if (
@@ -193,8 +224,11 @@ client.on('message_create', async message => {
       message.author === null && message.from?.endsWith('@broadcast')
     ) return;
 
-    // ── capture all incoming messages for Chats dashboard ────────────────────
-    if (!message.fromMe) captureMessage(message).catch(() => {});
+    // ── capture message (incoming & outgoing) ────────────────────────────
+    captureMessage(message).catch(() => {});
+
+    // skip outgoing messages that aren't commands (prevents processing bot's own replies)
+    if (message.fromMe && !message.body?.startsWith(CMD_PREFIX)) return;
 
     const senderId  = parseSenderId(message.from);
     const chat      = await message.getChat();

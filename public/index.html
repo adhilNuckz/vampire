@@ -3,504 +3,880 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WhatsApp Agent Dashboard</title>
+  <title>WhatsApp Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <script src="/socket.io/socket.io.js"></script>
   <style>
-    /* ── Reset & Base ── */
+    /* ── Reset & Tokens ────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg:       #0f1117;
-      --surface:  #1a1d27;
-      --surface2: #232636;
-      --border:   #2e3247;
-      --accent:   #25d366;  /* WhatsApp green */
-      --accent2:  #128c7e;
-      --blue:     #4a9eff;
-      --red:      #ff4a4a;
-      --yellow:   #ffd166;
-      --text:     #e8eaf0;
-      --muted:    #7b82a0;
-      --radius:   10px;
-      --font:     'Segoe UI', system-ui, -apple-system, sans-serif;
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --surface2:  #21262d;
+      --surface3:  #2d333b;
+      --border:    #30363d;
+      --accent:    #25d366;
+      --accent2:   #128c7e;
+      --accent-dim:rgba(37,211,102,0.08);
+      --blue:      #58a6ff;
+      --red:       #f85149;
+      --yellow:    #e3b341;
+      --text:      #e6edf3;
+      --text2:     #8b949e;
+      --radius:    10px;
+      --font:      'Inter', system-ui, -apple-system, sans-serif;
+      --sidebar-w: 240px;
+      --topbar-h:  56px;
+      --transition: 0.2s ease;
     }
-    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; }
 
-    /* ── Layout ── */
-    .layout { display: grid; grid-template-columns: 220px 1fr; grid-template-rows: 60px 1fr; height: 100vh; }
-    .topbar { grid-column: 1/3; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; gap: 16px; }
-    .topbar .logo { font-size: 20px; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }
-    .topbar .logo span { color: var(--text); }
-    .topbar .status-pill { display: flex; align-items: center; gap: 6px; background: var(--surface2); border-radius: 20px; padding: 4px 12px; font-size: 12px; margin-left: auto; }
-    .topbar .status-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); transition: background .3s; }
-    .topbar .status-pill .dot.connected { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
-    .sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 16px 0; overflow-y: auto; }
-    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; cursor: pointer; color: var(--muted); border-left: 3px solid transparent; transition: all .2s; font-size: 13px; }
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      overflow: hidden;
+    }
+
+    /* ── App Shell ─────────────────────────────────────────────── */
+    .app {
+      display: grid;
+      grid-template-columns: var(--sidebar-w) 1fr;
+      grid-template-rows: var(--topbar-h) 1fr;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+    }
+
+    /* ── Topbar ────────────────────────────────────────────────── */
+    .topbar {
+      grid-column: 1 / 3;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      gap: 16px;
+      z-index: 10;
+    }
+    .topbar .logo {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .topbar .logo span { color: var(--text2); font-weight: 400; }
+    .status-pill {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 5px 14px;
+      font-size: 12px;
+      color: var(--text2);
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      transition: background var(--transition);
+      flex-shrink: 0;
+    }
+    .status-dot.on {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+    }
+
+    /* ── Sidebar ───────────────────────────────────────────────── */
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 12px 0;
+      overflow-y: auto;
+    }
+    .nav-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: var(--text2);
+      padding: 8px 20px 4px;
+      margin-top: 8px;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 20px;
+      cursor: pointer;
+      color: var(--text2);
+      border-left: 3px solid transparent;
+      border-radius: 0 8px 8px 0;
+      margin-right: 8px;
+      transition: all var(--transition);
+      font-size: 13.5px;
+      font-weight: 500;
+      user-select: none;
+    }
     .nav-item:hover { color: var(--text); background: var(--surface2); }
-    .nav-item.active { color: var(--accent); border-left-color: var(--accent); background: rgba(37,211,102,.07); }
-    .nav-item .icon { font-size: 16px; width: 20px; text-align: center; }
-    .main { overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
-
-    /* ── Section visibility ── */
-    .section { display: none; }
-    .section.active { display: contents; }
-
-    /* ── Cards ── */
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
-    .card-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 14px; }
-
-    /* ── Stats row ── */
-    .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
-    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
-    .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
-    .stat-value { font-size: 26px; font-weight: 700; margin-top: 4px; }
-    .stat-value.green { color: var(--accent); }
-    .stat-value.blue  { color: var(--blue); }
-    .stat-value.yellow{ color: var(--yellow); }
-    .stat-value.red   { color: var(--red); }
-
-    /* ── Progress bars ── */
-    .bar-wrap { background: var(--surface2); border-radius: 4px; height: 8px; margin-top: 8px; overflow: hidden; }
-    .bar-fill  { height: 100%; border-radius: 4px; transition: width .6s ease; }
-    .bar-fill.green  { background: var(--accent); }
-    .bar-fill.yellow { background: var(--yellow); }
-    .bar-fill.red    { background: var(--red); }
-
-    /* ── Log feed ── */
-    .log-feed { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); height: 380px; overflow-y: auto; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 12px; padding: 10px; display: flex; flex-direction: column; gap: 2px; }
-    .log-entry { padding: 3px 6px; border-radius: 4px; line-height: 1.5; }
-    .log-entry:hover { background: var(--surface); }
-    .log-entry .ts   { color: var(--muted); margin-right: 8px; }
-    .log-entry.info  { color: #a8c4ff; }
-    .log-entry.warn  { color: var(--yellow); }
-    .log-entry.error { color: var(--red); }
-
-    /* ── Message list ── */
-    .msg-list { display: flex; flex-direction: column; gap: 10px; max-height: 420px; overflow-y: auto; }
-    .msg-bubble { background: var(--surface2); border-radius: 10px; padding: 10px 14px; max-width: 90%; }
-    .msg-bubble .meta { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
-    .msg-bubble .body { word-break: break-word; }
-    .msg-bubble.voice { border-left: 3px solid var(--blue); }
-    .msg-bubble.text  { border-left: 3px solid var(--accent); }
-
-    /* ── Forms ── */
-    .form-grid { display: grid; gap: 12px; }
-    .form-grid.cols2 { grid-template-columns: 1fr 1fr; }
-    label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
-    input, textarea, select {
-      width: 100%; background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 6px; padding: 8px 12px; color: var(--text); font-family: var(--font); font-size: 13px;
-      transition: border-color .2s;
+    .nav-item.active {
+      color: var(--accent);
+      border-left-color: var(--accent);
+      background: var(--accent-dim);
     }
-    input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+    .nav-item .nav-icon { font-size: 17px; width: 22px; text-align: center; }
+
+    /* ── Main Panel ────────────────────────────────────────────── */
+    .main {
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Sections ──────────────────────────────────────────────── */
+    .section {
+      display: none;
+      flex: 1;
+      overflow: hidden;
+    }
+    .section.active { display: flex; flex-direction: column; }
+
+    /* Scrollable content wrapper */
+    .scroll-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* ── Cards ─────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .card-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text2);
+      margin-bottom: 16px;
+    }
+
+    /* ── Forms ─────────────────────────────────────────────────── */
+    .form-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .form-col { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 180px; }
+    label { font-size: 12px; color: var(--text2); font-weight: 500; }
+    input, textarea, select {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 9px 13px;
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13px;
+      transition: border-color var(--transition);
+      outline: none;
+    }
+    input:focus, textarea:focus, select:focus { border-color: var(--accent); }
     textarea { resize: vertical; min-height: 80px; }
-    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 18px; border-radius: 7px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; transition: filter .2s; }
-    .btn:hover { filter: brightness(1.15); }
-    .btn.primary { background: var(--accent); color: #000; }
+
+    /* ── Buttons ───────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 9px 18px;
+      border-radius: 7px;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: var(--font);
+      transition: filter var(--transition), opacity var(--transition);
+      white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { filter: brightness(1.15); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn.primary   { background: var(--accent); color: #000; }
     .btn.secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
-    .btn.danger  { background: var(--red); color: #fff; }
+    .btn.danger    { background: var(--red); color: #fff; }
+    .btn.sm        { padding: 5px 12px; font-size: 12px; border-radius: 5px; }
 
-    /* ── Response box ── */
-    .response-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-size: 13px; min-height: 60px; white-space: pre-wrap; word-break: break-word; color: var(--text); margin-top: 12px; }
-    .response-box.hidden { display: none; }
+    /* ── Badges ────────────────────────────────────────────────── */
+    .badge {
+      display: inline-flex; align-items: center;
+      padding: 2px 8px; border-radius: 10px;
+      font-size: 11px; font-weight: 600;
+    }
+    .badge.ok      { background: rgba(37,211,102,.15); color: var(--accent); }
+    .badge.fail    { background: rgba(248,81,73,.15);  color: var(--red); }
+    .badge.pending { background: rgba(227,179,65,.15); color: var(--yellow); }
 
-    /* ── QR overlay ── */
-    #qr-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.75); z-index: 100; align-items: center; justify-content: center; }
-    #qr-overlay.show { display: flex; }
-    #qr-box { background: white; padding: 24px; border-radius: 12px; text-align: center; color: #000; }
-    #qr-box pre { font-family: monospace; font-size: 7px; line-height: 1; }
-    #qr-box p { margin-top: 12px; font-size: 14px; }
-
-    /* ── Tables ── */
+    /* ── Tables ────────────────────────────────────────────────── */
     .tbl-wrap { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); letter-spacing: .7px; }
-    td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th {
+      text-align: left; padding: 8px 12px;
+      font-size: 10.5px; text-transform: uppercase;
+      color: var(--text2); border-bottom: 1px solid var(--border);
+      letter-spacing: .7px; font-weight: 600;
+    }
+    td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: var(--surface2); }
-    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
-    .badge.ok      { background: rgba(37,211,102,.15); color: var(--accent); }
-    .badge.fail    { background: rgba(255,74,74,.15);  color: var(--red); }
-    .badge.pending { background: rgba(255,209,102,.15);color: var(--yellow); }
 
-    /* ── Scrollbar ── */
-    ::-webkit-scrollbar { width: 6px; }
+    /* ── Spinner ───────────────────────────────────────────────── */
+    .spinner {
+      display: inline-block; width: 13px; height: 13px;
+      border: 2px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin .6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Scrollbar ─────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-    /* ── Loading spinner ── */
-    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    /* ── QR Overlay ────────────────────────────────────────────── */
+    #qr-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.8); z-index: 200;
+      align-items: center; justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+    #qr-overlay.show { display: flex; }
+    #qr-box {
+      background: #fff; padding: 28px; border-radius: 14px;
+      text-align: center; color: #000;
+    }
+    #qr-box pre { font-family: monospace; font-size: 7px; line-height: 1; }
+    #qr-box p { margin-top: 12px; font-size: 13px; color: #444; }
+
+    /* ══════════════════════════════════════════════════════════
+       CHATS SECTION — WhatsApp Web style
+    ══════════════════════════════════════════════════════════ */
+    #sec-chats.active {
+      display: flex;
+      flex-direction: row;
+      overflow: hidden;
+      height: calc(100vh - var(--topbar-h));
+    }
+
+    /* Left sidebar — conversations list */
+    .cs-sidebar {
+      width: 320px;
+      min-width: 280px;
+      max-width: 360px;
+      display: flex;
+      flex-direction: column;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .cs-sidebar-header {
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .cs-sidebar-header h3 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .cs-search {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 7px 14px;
+      font-size: 13px;
+      color: var(--text);
+      outline: none;
+      width: 100%;
+      transition: border-color var(--transition);
+    }
+    .cs-search:focus { border-color: var(--accent); }
+
+    .cs-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+    .cs-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(48,54,61,0.4);
+      transition: background var(--transition);
+    }
+    .cs-item:hover { background: var(--surface2); }
+    .cs-item.active {
+      background: var(--accent-dim);
+      border-left: 3px solid var(--accent);
+    }
+    .cs-avatar {
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent2), var(--accent));
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 17px;
+      flex-shrink: 0;
+    }
+    .cs-item-body { flex: 1; min-width: 0; }
+    .cs-item-top {
+      display: flex; justify-content: space-between;
+      align-items: center; margin-bottom: 3px;
+    }
+    .cs-name {
+      font-weight: 600; font-size: 13.5px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .cs-time { font-size: 11px; color: var(--text2); flex-shrink: 0; }
+    .cs-preview {
+      font-size: 12px; color: var(--text2);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .cs-preview.deleted { color: var(--red); font-style: italic; }
+
+    /* Right panel — active conversation */
+    .cs-window {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #0b1118;
+      background-image:
+        radial-gradient(rgba(37,211,102,0.025) 1px, transparent 0),
+        radial-gradient(rgba(37,211,102,0.025) 1px, transparent 0);
+      background-size: 28px 28px;
+      background-position: 0 0, 14px 14px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Welcome screen */
+    .cs-welcome {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 40px;
+      color: var(--text2);
+    }
+    .cs-welcome .big-icon {
+      font-size: 72px;
+      margin-bottom: 20px;
+      filter: drop-shadow(0 0 24px rgba(37,211,102,0.3));
+    }
+    .cs-welcome h2 { font-size: 20px; color: var(--text); margin-bottom: 8px; }
+    .cs-welcome p  { font-size: 13px; }
+
+    /* Active chat screen */
+    .cs-active {
+      display: flex; flex-direction: column;
+      flex: 1; overflow: hidden;
+    }
+    .cs-active.hidden { display: none; }
+
+    .cs-chat-header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 18px;
+      display: flex; align-items: center; gap: 12px;
+      flex-shrink: 0;
+    }
+    .cs-chat-header .cs-avatar { width: 38px; height: 38px; font-size: 15px; }
+    .cs-chat-header-info { flex: 1; }
+    .cs-chat-header-info .ch-name { font-weight: 700; font-size: 14px; }
+    .cs-chat-header-info .ch-sub  { font-size: 11px; color: var(--text2); }
+
+    /* Message bubbles area */
+    .cs-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .bubble-wrap {
+      display: flex;
+      width: 100%;
+      align-items: flex-end;
+      gap: 8px;
+    }
+    .bubble-wrap.sent     { justify-content: flex-end; }
+    .bubble-wrap.received { justify-content: flex-start; }
+
+    .bubble {
+      max-width: 68%;
+      padding: 8px 12px 6px;
+      border-radius: 10px;
+      font-size: 13.5px;
+      line-height: 1.45;
+      word-break: break-word;
+      position: relative;
+    }
+    .bubble-wrap.sent .bubble {
+      background: #005c4b;
+      color: #e9edef;
+      border-top-right-radius: 2px;
+    }
+    .bubble-wrap.received .bubble {
+      background: #202c33;
+      color: #e9edef;
+      border-top-left-radius: 2px;
+    }
+    .bubble.is-deleted {
+      background: rgba(248,81,73,0.12) !important;
+      border: 1px solid rgba(248,81,73,0.25);
+    }
+    .bubble-sender {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 3px;
+    }
+    .bubble-body { }
+    .bubble-body.strikethrough {
+      text-decoration: line-through;
+      font-style: italic;
+      opacity: 0.7;
+    }
+    .bubble-meta {
+      display: flex; align-items: center;
+      justify-content: flex-end;
+      gap: 4px;
+      margin-top: 4px;
+      font-size: 10px;
+      color: rgba(255,255,255,0.4);
+    }
+    .revoked-tag {
+      font-size: 10px;
+      color: var(--red);
+      font-weight: 600;
+    }
+
+    /* Chat footer */
+    .cs-footer {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 10px 16px;
+      display: flex; align-items: center; gap: 10px;
+      flex-shrink: 0;
+    }
+    .cs-footer input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 9px 16px;
+      color: var(--text);
+      font-size: 13.5px;
+    }
+    .cs-footer input:focus { border-color: var(--accent); }
+
+    /* ══════════════════════════════════════════════════════════
+       MESSAGES SECTION — flat list of all messages
+    ══════════════════════════════════════════════════════════ */
+    .msg-filter-bar {
+      display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    }
+    .msg-filter-bar input { flex: 1; min-width: 200px; }
+    .msg-filter-bar label { white-space: nowrap; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .msg-filter-bar input[type="checkbox"] { width: auto; }
+
+    .msg-list {
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .msg-entry {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: flex; gap: 12px; align-items: flex-start;
+      transition: border-color var(--transition);
+    }
+    .msg-entry:hover { border-color: var(--accent2); }
+    .msg-entry.deleted {
+      border-color: rgba(248,81,73,0.3);
+      background: rgba(248,81,73,0.05);
+    }
+    .msg-avatar-sm {
+      width: 34px; height: 34px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent2), var(--accent));
+      color: #fff; font-weight: 700; font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .msg-entry-body { flex: 1; min-width: 0; }
+    .msg-entry-top {
+      display: flex; justify-content: space-between;
+      align-items: center; margin-bottom: 4px; gap: 8px; flex-wrap: wrap;
+    }
+    .msg-from { font-weight: 600; font-size: 13px; }
+    .msg-time { font-size: 11px; color: var(--text2); }
+    .msg-text {
+      font-size: 13px; color: var(--text); word-break: break-word;
+      line-height: 1.5;
+    }
+    .msg-text.deleted-text {
+      text-decoration: line-through; font-style: italic; color: var(--red);
+    }
+    .deleted-label {
+      font-size: 10.5px; color: var(--red); font-weight: 600;
+      background: rgba(248,81,73,0.12);
+      padding: 1px 6px; border-radius: 4px;
+    }
+    .msg-type-tag {
+      font-size: 10.5px; color: var(--blue); font-weight: 500;
+      background: rgba(88,166,255,0.1);
+      padding: 1px 6px; border-radius: 4px;
+    }
+    .msg-empty {
+      text-align: center; padding: 48px; color: var(--text2);
+      font-size: 14px;
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       CONTACTS SECTION
+    ══════════════════════════════════════════════════════════ */
+    .contact-search-row { display: flex; gap: 10px; }
+    .contact-search-row input { flex: 1; }
+
+    /* ══════════════════════════════════════════════════════════
+       SCHEDULE SECTION
+    ══════════════════════════════════════════════════════════ */
+    .sch-result-msg {
+      font-size: 13px;
+      padding: 8px 0;
+      min-height: 28px;
+    }
+
+    /* ── Responsive — mobile ───────────────────────────────────── */
+    @media (max-width: 768px) {
+      .app {
+        grid-template-columns: 1fr;
+        grid-template-rows: var(--topbar-h) auto 1fr;
+      }
+      .topbar { grid-column: 1; }
+      .sidebar {
+        flex-direction: row;
+        flex-wrap: wrap;
+        padding: 6px;
+        gap: 4px;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        overflow-x: auto;
+        overflow-y: visible;
+      }
+      .nav-label { display: none; }
+      .nav-item {
+        padding: 7px 12px;
+        border-radius: 6px;
+        border-left: none;
+        border-bottom: 2px solid transparent;
+        margin-right: 0;
+        font-size: 12px;
+      }
+      .nav-item.active {
+        border-left: none;
+        border-bottom-color: var(--accent);
+        background: var(--accent-dim);
+      }
+      #sec-chats.active { flex-direction: column; height: auto; flex: 1; }
+      .cs-sidebar { width: 100%; max-width: 100%; border-right: none; border-bottom: 1px solid var(--border); max-height: 240px; }
+      .cs-window { flex: 1; min-height: 300px; }
+      .bubble { max-width: 88%; }
+      .scroll-content { padding: 16px; }
+    }
+
+    @media (max-width: 480px) {
+      .cs-sidebar { max-height: 200px; }
+      .topbar .logo span { display: none; }
+      .form-row { flex-direction: column; }
+    }
   </style>
 </head>
 <body>
 
-<!-- QR Code overlay shown when WhatsApp needs scanning -->
+<!-- QR overlay -->
 <div id="qr-overlay">
   <div id="qr-box">
     <p><strong>Scan with WhatsApp</strong></p>
     <pre id="qr-pre"></pre>
-    <p id="qr-hint">Open WhatsApp → Linked Devices → Link a Device</p>
+    <p>Open WhatsApp → Linked Devices → Link a Device</p>
   </div>
 </div>
 
-<div class="layout">
-  <!-- Top bar -->
+<div class="app">
+
+  <!-- ── Topbar ── -->
   <header class="topbar">
-    <div class="logo">WhatsApp<span>Agent</span></div>
+    <div class="logo">💬 WhatsApp<span>Dashboard</span></div>
     <div class="status-pill">
-      <div class="dot" id="status-dot"></div>
+      <div class="status-dot" id="status-dot"></div>
       <span id="status-text">Connecting…</span>
     </div>
   </header>
 
-  <!-- Sidebar nav -->
+  <!-- ── Sidebar ── -->
   <nav class="sidebar">
-    <div class="nav-item active" data-section="overview">
-      <span class="icon">📊</span> Overview
+    <div class="nav-label">Menu</div>
+
+    <div class="nav-item active" data-section="chats" id="nav-chats">
+      <span class="nav-icon">💬</span> Chats
     </div>
-    <div class="nav-item" data-section="messages">
-      <span class="icon">💬</span> Messages
+    <div class="nav-item" data-section="messages" id="nav-messages">
+      <span class="nav-icon">📋</span> Messages
     </div>
-    <div class="nav-item" data-section="commands">
-      <span class="icon">⌨️</span> Commands
+    <div class="nav-item" data-section="contacts" id="nav-contacts">
+      <span class="nav-icon">📒</span> Contacts
     </div>
-    <div class="nav-item" data-section="email">
-      <span class="icon">📧</span> Email
-    </div>
-    <div class="nav-item" data-section="server">
-      <span class="icon">🖥</span> Server Tasks
-    </div>
-    <div class="nav-item" data-section="apichecks">
-      <span class="icon">🌐</span> API Health
-    </div>
-    <div class="nav-item" data-section="logs">
-      <span class="icon">📄</span> Logs
-    </div>
-    <div class="nav-item" data-section="schedule">
-      <span class="icon">⏰</span> Schedule
-    </div>
-    <div class="nav-item" data-section="contacts">
-      <span class="icon">📒</span> Contacts
-    </div>
-    <div class="nav-item" data-section="chats">
-      <span class="icon">💬</span> Chats
+    <div class="nav-item" data-section="schedule" id="nav-schedule">
+      <span class="nav-icon">⏰</span> Schedule
     </div>
   </nav>
 
-  <!-- Main content -->
-  <main class="main" id="main-content">
+  <!-- ── Main ── -->
+  <main class="main">
 
-    <!-- ── OVERVIEW ─────────────────────────────────────────── -->
-    <div class="section active" id="sec-overview">
+    <!-- ══════════ CHATS ══════════ -->
+    <div class="section active" id="sec-chats">
 
-      <div class="stats-row">
-        <div class="stat-card">
-          <div class="stat-label">CPU Usage</div>
-          <div class="stat-value green" id="cpu-val">—%</div>
-          <div class="bar-wrap"><div class="bar-fill green" id="cpu-bar" style="width:0%"></div></div>
+      <!-- Left: conversation list -->
+      <div class="cs-sidebar">
+        <div class="cs-sidebar-header">
+          <h3>Conversations</h3>
+          <input class="cs-search" id="chat-search" type="text" placeholder="Search…" />
         </div>
-        <div class="stat-card">
-          <div class="stat-label">RAM Usage</div>
-          <div class="stat-value yellow" id="ram-val">—%</div>
-          <div class="bar-wrap"><div class="bar-fill yellow" id="ram-bar" style="width:0%"></div></div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Messages Recv</div>
-          <div class="stat-value blue" id="msg-count">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Commands Run</div>
-          <div class="stat-value green" id="cmd-count">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Emails Sent</div>
-          <div class="stat-value" id="email-count">0</div>
-        </div>
+        <div class="cs-list" id="chat-list"></div>
       </div>
 
-      <div class="card">
-        <div class="card-title">Recent Activity</div>
-        <div class="log-feed" id="activity-feed"></div>
+      <!-- Right: active chat -->
+      <div class="cs-window" id="cs-window">
+
+        <!-- Welcome -->
+        <div class="cs-welcome" id="cs-welcome">
+          <div class="big-icon">💬</div>
+          <h2>Select a conversation</h2>
+          <p>Pick a contact from the list to view messages.</p>
+        </div>
+
+        <!-- Active screen -->
+        <div class="cs-active hidden" id="cs-active">
+          <div class="cs-chat-header">
+            <div class="cs-avatar" id="ca-avatar">?</div>
+            <div class="cs-chat-header-info">
+              <div class="ch-name" id="ca-name">Contact</div>
+              <div class="ch-sub"  id="ca-sub">—</div>
+            </div>
+          </div>
+
+          <div class="cs-messages" id="cs-messages"></div>
+
+          <div class="cs-footer">
+            <input type="text" id="cs-input" placeholder="Type a message…" />
+            <button class="btn primary" id="cs-send-btn">Send ➔</button>
+          </div>
+        </div>
+
       </div>
     </div>
 
-    <!-- ── MESSAGES ─────────────────────────────────────────── -->
+    <!-- ══════════ MESSAGES ══════════ -->
     <div class="section" id="sec-messages">
-      <div class="card">
-        <div class="card-title">Incoming Messages</div>
-        <div class="msg-list" id="msg-list">
-          <p style="color:var(--muted)">No messages yet…</p>
+      <div class="scroll-content">
+
+        <div class="card">
+          <div class="card-title">Filter</div>
+          <div class="msg-filter-bar">
+            <input type="text" id="msg-search" placeholder="Search messages…" />
+            <label>
+              <input type="checkbox" id="msg-show-deleted" checked />
+              Show deleted
+            </label>
+            <button class="btn secondary" id="msg-refresh-btn">🔄 Refresh</button>
+          </div>
         </div>
+
+        <div class="card">
+          <div class="card-title">All Messages <span id="msg-count-label" style="color:var(--text2);font-weight:400;text-transform:none;letter-spacing:0"></span></div>
+          <div class="msg-list" id="msg-list">
+            <div class="msg-empty">Loading messages…</div>
+          </div>
+        </div>
+
       </div>
     </div>
 
-    <!-- ── COMMANDS ─────────────────────────────────────────── -->
-    <div class="section" id="sec-commands">
-      <div class="card">
-        <div class="card-title">Manual Command</div>
-        <p style="color:var(--muted);margin-bottom:14px;font-size:13px">Send a natural-language command through the Gemini processor.</p>
-        <div class="form-grid">
-          <div>
-            <label>Command</label>
-            <input type="text" id="cmd-input" placeholder="e.g. check disk usage, bitcoin price, weather in Paris…" />
-          </div>
-        </div>
-        <div style="margin-top:12px">
-          <button class="btn primary" id="cmd-btn">▷ Run Command</button>
-        </div>
-        <div class="response-box hidden" id="cmd-result"></div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Command History</div>
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr><th>Time</th><th>Command</th><th>Result (preview)</th></tr></thead>
-            <tbody id="cmd-history"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── EMAIL ────────────────────────────────────────────── -->
-    <div class="section" id="sec-email">
-      <div class="card">
-        <div class="card-title">Send Email</div>
-        <div class="form-grid cols2">
-          <div>
-            <label>To</label>
-            <input type="email" id="email-to" placeholder="recipient@example.com" />
-          </div>
-          <div>
-            <label>Subject</label>
-            <input type="text" id="email-subject" placeholder="Subject line" />
-          </div>
-        </div>
-        <div style="margin-top:12px">
-          <label>Body</label>
-          <textarea id="email-body" placeholder="Email body…"></textarea>
-        </div>
-        <div style="margin-top:12px">
-          <button class="btn primary" id="email-btn">📤 Send Email</button>
-        </div>
-        <div class="response-box hidden" id="email-result"></div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Email History</div>
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr><th>Time</th><th>To</th><th>Subject</th><th>Status</th></tr></thead>
-            <tbody id="email-history"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── SERVER ────────────────────────────────────────────── -->
-    <div class="section" id="sec-server">
-      <div class="stats-row" style="margin-bottom:4px">
-        <button class="btn secondary" onclick="fetchMetrics()">🔄 Refresh Metrics</button>
-        <button class="btn secondary" onclick="quickShell('uptime')">⏱ Uptime</button>
-        <button class="btn secondary" onclick="quickShell('df -h')">💾 Disk</button>
-        <button class="btn secondary" onclick="quickShell('ps aux --sort=-%cpu --no-headers | head -8')">📋 Processes</button>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Shell Command</div>
-        <div class="form-grid">
-          <div>
-            <label>Command (whitelisted only)</label>
-            <input type="text" id="shell-input" placeholder="e.g. df -h, ps aux, tail /var/log/syslog" />
-          </div>
-        </div>
-        <div style="margin-top:12px">
-          <button class="btn primary" id="shell-btn">⚡ Execute</button>
-        </div>
-        <div class="response-box hidden" id="shell-result"></div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">System Metrics</div>
-        <pre class="response-box" id="metrics-result" style="display:block">Loading…</pre>
-      </div>
-    </div>
-
-    <!-- ── API HEALTH ─────────────────────────────────────────── -->
-    <div class="section" id="sec-apichecks">
-      <div class="card">
-        <div class="card-title">API Health Check</div>
-        <div class="form-grid">
-          <div>
-            <label>URLs (one per line)</label>
-            <textarea id="api-urls" placeholder="https://api.example.com/health&#10;https://another.service.io/ping" style="min-height:100px"></textarea>
-          </div>
-        </div>
-        <div style="margin-top:12px">
-          <button class="btn primary" id="api-check-btn">🌐 Check Health</button>
-        </div>
-        <div class="response-box hidden" id="api-result"></div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Check History</div>
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr><th>Time</th><th>URL</th><th>Status</th><th>Result</th></tr></thead>
-            <tbody id="api-history"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── LOGS ──────────────────────────────────────────────── -->
-    <div class="section" id="sec-logs">
-      <div class="card" style="display:flex;align-items:center;gap:10px;margin-bottom:4px;padding:10px 18px">
-        <button class="btn secondary" onclick="clearLogFeed()">🗑 Clear</button>
-        <button class="btn secondary" onclick="pauseLogs()">⏸ Pause / Resume</button>
-        <input type="text" id="log-filter" placeholder="Filter logs…" style="max-width:240px;margin-left:auto" />
-      </div>
-      <div class="card" style="padding:0">
-        <div class="log-feed" id="log-feed" style="height:550px;border:none;border-radius:var(--radius)"></div>
-      </div>
-    </div>
-
-    <!-- ── SCHEDULE ──────────────────────────────────────────── -->
-    <div class="section" id="sec-schedule">
-      <div class="card">
-        <div class="card-title">⏰ Schedule a WhatsApp Message</div>
-        <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Message will be sent automatically at the chosen time via the connected WhatsApp account.</p>
-        <div class="form-grid cols2">
-          <div>
-            <label>Phone Number (with country code, no +)</label>
-            <input type="text" id="sch-to" placeholder="e.g. 94783811114" />
-          </div>
-          <div>
-            <label>Send At (date &amp; time)</label>
-            <input type="datetime-local" id="sch-time" />
-          </div>
-        </div>
-        <div style="margin-top:12px">
-          <label>Message</label>
-          <textarea id="sch-msg" placeholder="Type the WhatsApp message to send…" style="min-height:100px"></textarea>
-        </div>
-        <div style="margin-top:14px;display:flex;align-items:center;gap:12px">
-          <button class="btn primary" id="sch-btn">⏰ Schedule Message</button>
-          <span id="sch-result" style="font-size:13px"></span>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Scheduled Messages</div>
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr><th>ID</th><th>To</th><th>Message</th><th>Send At</th><th>Status</th><th>Action</th></tr></thead>
-            <tbody id="sch-table"></tbody>
-          </table>
-        </div>
-        <p id="sch-empty" style="color:var(--muted);font-size:13px;margin-top:10px">No scheduled messages yet.</p>
-      </div>
-    </div>
-
-    <!-- ── CONTACTS ─────────────────────────────────────────── -->
+    <!-- ══════════ CONTACTS ══════════ -->
     <div class="section" id="sec-contacts">
+      <div class="scroll-content">
 
-      <div class="card">
-        <div class="card-title">🔍 Search Contacts</div>
-        <div style="display:flex;gap:10px;align-items:flex-end">
-          <div style="flex:1">
-            <label>Name or phone number</label>
-            <input type="text" id="contact-search" placeholder="Type a name or number…" />
+        <div class="card">
+          <div class="card-title">🔍 Search Contacts</div>
+          <div class="contact-search-row">
+            <input type="text" id="contact-q" placeholder="Name or phone number…" />
+            <button class="btn primary" id="contact-search-btn">Search</button>
           </div>
-          <button class="btn primary" id="contact-search-btn" style="white-space:nowrap">🔍 Search</button>
+          <p style="font-size:12px;color:var(--text2);margin-top:8px">Leave blank to list all contacts.</p>
         </div>
-        <p style="color:var(--muted);font-size:12px;margin-top:8px">Leave blank and search to list all contacts.</p>
-      </div>
 
-      <div class="card">
-        <div class="card-title">💬 Ping Message</div>
-        <p style="color:var(--muted);font-size:13px;margin-bottom:10px">This message is sent every time you press a Ping button below.</p>
-        <div style="display:flex;gap:10px;align-items:flex-end">
-          <div style="flex:1">
-            <label>Ping message</label>
-            <input type="text" id="ping-msg" placeholder="e.g. Hey! Just checking in 👋" value="Hey! 👋" />
+        <div class="card">
+          <div class="card-title">💬 Ping Message</div>
+          <div class="form-col" style="max-width:480px">
+            <label>Message sent when you press Ping</label>
+            <input type="text" id="ping-msg" value="Hey! 👋" placeholder="e.g. Hey! Just checking in 👋" />
           </div>
         </div>
-      </div>
 
-      <div class="card">
-        <div class="card-title">Results <span id="contact-count" style="color:var(--muted);font-weight:400"></span></div>
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr><th>Name</th><th>Number</th><th>Action</th></tr></thead>
-            <tbody id="contact-table"></tbody>
-          </table>
+        <div class="card">
+          <div class="card-title">Results <span id="contact-count" style="color:var(--text2);font-weight:400;text-transform:none;letter-spacing:0"></span></div>
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Number</th><th>Action</th></tr></thead>
+              <tbody id="contact-table"></tbody>
+            </table>
+          </div>
+          <p id="contact-empty" style="color:var(--text2);font-size:13px;margin-top:12px">Search above to find contacts.</p>
         </div>
-        <p id="contact-empty" style="color:var(--muted);font-size:13px;margin-top:10px">Search above to find contacts.</p>
-      </div>
 
-      <div class="card">
-        <div class="card-title">📬 Ping History</div>
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr><th>Time</th><th>To</th><th>Message</th><th>Status</th></tr></thead>
-            <tbody id="ping-history"></tbody>
-          </table>
+        <div class="card">
+          <div class="card-title">📬 Ping History</div>
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr><th>Time</th><th>To</th><th>Message</th><th>Status</th></tr></thead>
+              <tbody id="ping-history"></tbody>
+            </table>
+          </div>
+          <p id="ping-empty" style="color:var(--text2);font-size:13px;margin-top:10px">No pings sent yet.</p>
         </div>
-        <p id="ping-empty" style="color:var(--muted);font-size:13px;margin-top:10px">No pings sent yet.</p>
-      </div>
 
+      </div>
     </div>
 
-    <!-- ── CHATS ──────────────────────────────────────────── -->
-    <div class="section" id="sec-chats">
+    <!-- ══════════ SCHEDULE ══════════ -->
+    <div class="section" id="sec-schedule">
+      <div class="scroll-content">
 
-      <div class="card">
-        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
-          💬 Received Messages
-          <span style="display:flex;gap:10px;align-items:center">
-            <span id="chats-count" style="color:var(--muted);font-size:12px;font-weight:400"></span>
-            <button class="btn" id="chats-clear-btn" style="padding:4px 12px;font-size:12px">🗑 Clear</button>
-          </span>
+        <div class="card">
+          <div class="card-title">⏰ Schedule a WhatsApp Message</div>
+          <p style="color:var(--text2);font-size:13px;margin-bottom:18px">
+            Message will be sent automatically at the chosen time via the connected WhatsApp account.
+          </p>
+          <div class="form-row">
+            <div class="form-col">
+              <label>Phone (with country code, no +)</label>
+              <input type="text" id="sch-to" placeholder="e.g. 94783811114" />
+            </div>
+            <div class="form-col">
+              <label>Send At</label>
+              <input type="datetime-local" id="sch-time" />
+            </div>
+          </div>
+          <div class="form-col" style="margin-top:12px">
+            <label>Message</label>
+            <textarea id="sch-msg" placeholder="Type the message to send…" style="min-height:100px"></textarea>
+          </div>
+          <div style="margin-top:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <button class="btn primary" id="sch-btn">⏰ Schedule Message</button>
+            <span id="sch-result" class="sch-result-msg"></span>
+          </div>
         </div>
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr><th>Time</th><th>Sender</th><th>Content</th></tr></thead>
-            <tbody id="chats-table"></tbody>
-          </table>
+
+        <div class="card">
+          <div class="card-title">Scheduled Messages</div>
+          <div class="tbl-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th><th>To</th><th>Message</th>
+                  <th>Send At</th><th>Status</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="sch-table"></tbody>
+            </table>
+          </div>
+          <p id="sch-empty" style="color:var(--text2);font-size:13px;margin-top:10px">No scheduled messages yet.</p>
         </div>
-        <p id="chats-empty" style="color:var(--muted);font-size:13px;margin-top:10px">No messages received yet.</p>
+
       </div>
-
     </div>
 
   </main>
 </div>
 
 <script>
-/* ── Socket.IO ──────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   Helpers
+═══════════════════════════════════════════════════════════════ */
 const socket = io();
 
-/* ── counters ──────────────────────────────────────────────── */
-let msgCount   = 0;
-let cmdCount   = 0;
-let emailCount = 0;
-let logsPaused = false;
-
-/* ── helpers ────────────────────────────────────────────────── */
-function ts(d = Date.now()) {
-  return new Date(d).toLocaleTimeString();
+function escHtml(s) {
+  return String(s || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
 }
-
+function ts(d = Date.now()) {
+  return new Date(d).toLocaleString(undefined, {
+    month:'short', day:'numeric',
+    hour:'2-digit', minute:'2-digit'
+  });
+}
+function tsShort(d = Date.now()) {
+  return new Date(d).toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
+}
 function trunc(s, n = 80) {
   s = String(s || '');
   return s.length > n ? s.slice(0, n) + '…' : s;
 }
+function getInitials(name) {
+  const parts = String(name || '?').trim().split(/\s+/);
+  return parts.length >= 2
+    ? (parts[0][0] + parts[1][0]).toUpperCase()
+    : String(name || '?')[0].toUpperCase();
+}
+async function apiFetch(url, method = 'GET', body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(url, opts);
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(j.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
 
-function showEl(id) { const el = document.getElementById(id); if (el) el.classList.remove('hidden'); }
-function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
-
-/* ── nav routing ────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   Navigation
+═══════════════════════════════════════════════════════════════ */
 const navItems = document.querySelectorAll('.nav-item');
 const sections = document.querySelectorAll('.section');
 
@@ -509,300 +885,463 @@ navItems.forEach(item => {
     navItems.forEach(n => n.classList.remove('active'));
     sections.forEach(s => s.classList.remove('active'));
     item.classList.add('active');
-    document.getElementById('sec-' + item.dataset.section).classList.add('active');
+    const sec = document.getElementById('sec-' + item.dataset.section);
+    if (sec) sec.classList.add('active');
+
+    // Lazy-load data on tab switch
+    if (item.dataset.section === 'chats')    loadChats();
+    if (item.dataset.section === 'messages') loadMessages();
   });
 });
 
-/* ── connection status ──────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   Connection / QR
+═══════════════════════════════════════════════════════════════ */
 socket.on('status', ({ connected, message }) => {
   const dot  = document.getElementById('status-dot');
-  const text = document.getElementById('status-text');
-  dot.className  = 'dot' + (connected ? ' connected' : '');
-  text.textContent = message || (connected ? 'Connected' : 'Disconnected');
+  const txt  = document.getElementById('status-text');
+  dot.className = 'status-dot' + (connected ? ' on' : '');
+  txt.textContent = message || (connected ? 'Connected' : 'Disconnected');
+  if (connected) document.getElementById('qr-overlay').classList.remove('show');
 });
-
-socket.on('connect',    () => setText('status-text', 'Socket connected'));
-socket.on('disconnect', () => { document.getElementById('status-dot').className = 'dot'; setText('status-text', 'Disconnected'); });
-
-/* ── QR code ────────────────────────────────────────────────── */
+socket.on('connect',    () => document.getElementById('status-text').textContent = 'Socket connected');
+socket.on('disconnect', () => {
+  document.getElementById('status-dot').className = 'status-dot';
+  document.getElementById('status-text').textContent = 'Disconnected';
+});
 socket.on('qr', qr => {
   document.getElementById('qr-pre').textContent = qr;
   document.getElementById('qr-overlay').classList.add('show');
 });
-socket.on('status', ({ connected }) => {
-  if (connected) document.getElementById('qr-overlay').classList.remove('show');
+
+/* ═══════════════════════════════════════════════════════════════
+   CHATS SECTION
+═══════════════════════════════════════════════════════════════ */
+let chatsData    = [];
+let activeChatId = null;
+
+async function loadChats() {
+  try {
+    const res = await apiFetch('/api/chats?limit=1000');
+    chatsData = res.messages || [];
+    renderChatSidebar();
+    if (activeChatId) renderChatMessages();
+  } catch (e) {
+    console.error('loadChats:', e);
+  }
+}
+
+function getChatGroups() {
+  const groups = {};
+  chatsData.forEach(msg => {
+    const key = msg.senderId || msg.sender || 'unknown';
+    if (!groups[key]) {
+      groups[key] = { senderId: key, name: key, messages: [] };
+    }
+    if (msg.sender && msg.sender !== 'Me') groups[key].name = msg.sender;
+    groups[key].messages.push(msg);
+  });
+  // Sort by last message desc
+  return Object.values(groups).sort((a, b) => {
+    const la = a.messages[a.messages.length - 1]?.ts || 0;
+    const lb = b.messages[b.messages.length - 1]?.ts || 0;
+    return lb - la;
+  });
+}
+
+function renderChatSidebar() {
+  const q      = (document.getElementById('chat-search')?.value || '').toLowerCase();
+  const groups = getChatGroups().filter(g =>
+    g.name.toLowerCase().includes(q) || g.senderId.toLowerCase().includes(q)
+  );
+  const container = document.getElementById('chat-list');
+  if (!container) return;
+
+  if (!groups.length) {
+    container.innerHTML = `<p style="color:var(--text2);text-align:center;padding:24px;font-size:13px">No chats found</p>`;
+    return;
+  }
+
+  container.innerHTML = groups.map(g => {
+    const last    = g.messages[g.messages.length - 1];
+    const preview = last.isDeleted
+      ? '🗑️ Message deleted'
+      : (last.mediaUrl ? `[${last.type || 'Media'}]` : (last.body || ''));
+    const isActive = activeChatId === g.senderId;
+    return `
+      <div class="cs-item${isActive ? ' active' : ''}" onclick="selectChat('${escHtml(g.senderId)}')">
+        <div class="cs-avatar">${escHtml(getInitials(g.name))}</div>
+        <div class="cs-item-body">
+          <div class="cs-item-top">
+            <span class="cs-name">${escHtml(g.name)}</span>
+            <span class="cs-time">${tsShort(last.ts)}</span>
+          </div>
+          <div class="cs-preview${last.isDeleted ? ' deleted' : ''}">${escHtml(trunc(preview, 35))}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function selectChat(senderId) {
+  activeChatId = senderId;
+  renderChatSidebar();
+
+  const group = getChatGroups().find(g => g.senderId === senderId);
+  if (!group) return;
+
+  document.getElementById('cs-welcome').style.display = 'none';
+  const active = document.getElementById('cs-active');
+  active.classList.remove('hidden');
+
+  document.getElementById('ca-avatar').textContent = getInitials(group.name);
+  document.getElementById('ca-name').textContent   = group.name;
+  document.getElementById('ca-sub').textContent    = senderId;
+
+  renderChatMessages();
+}
+
+function renderChatMessages() {
+  const container = document.getElementById('cs-messages');
+  if (!container || !activeChatId) return;
+
+  const msgs = chatsData.filter(m =>
+    (m.senderId || m.sender || 'unknown') === activeChatId
+  );
+
+  if (!msgs.length) {
+    container.innerHTML = `<p style="color:var(--text2);text-align:center;padding:24px">No messages</p>`;
+    return;
+  }
+
+  container.innerHTML = msgs.map(m => {
+    const isSent = m.sender === 'Me';
+    const wrapClass  = isSent ? 'sent' : 'received';
+    const bubClass   = m.isDeleted ? 'is-deleted' : '';
+    const bodyClass  = m.isDeleted ? 'bubble-body strikethrough' : 'bubble-body';
+
+    let content = '';
+    if (m.mediaUrl) {
+      if (m.type === 'image') {
+        content = `<a href="${escHtml(m.mediaUrl)}" target="_blank"><img src="${escHtml(m.mediaUrl)}" style="max-height:180px;max-width:100%;border-radius:6px;${m.isDeleted?'filter:grayscale(1);opacity:.6':''}" /></a>`;
+      } else if (m.type === 'audio' || m.type === 'ptt') {
+        content = `<audio controls src="${escHtml(m.mediaUrl)}" style="height:34px;width:100%;${m.isDeleted?'opacity:.5':''}"></audio>`;
+      } else {
+        content = `<a href="${escHtml(m.mediaUrl)}" target="_blank" style="color:var(--blue)">[${escHtml(m.type)}]</a>`;
+      }
+    } else {
+      content = `<span class="${bodyClass}">${escHtml(m.body || '')}</span>`;
+    }
+
+    const revokedTag = m.isDeleted
+      ? `<span class="revoked-tag">🗑️ Revoked</span>`
+      : '';
+
+    const senderLabel = !isSent
+      ? `<div class="bubble-sender">${escHtml(m.sender || '')}</div>`
+      : '';
+
+    return `
+      <div class="bubble-wrap ${wrapClass}">
+        <div class="bubble ${bubClass}">
+          ${senderLabel}
+          <div>${content}</div>
+          <div class="bubble-meta">${revokedTag}<span>${tsShort(m.ts)}</span></div>
+        </div>
+      </div>`;
+  }).join('');
+
+  container.scrollTop = container.scrollHeight;
+}
+
+// Real-time new message
+socket.on('new_chat_message', msg => {
+  if (!chatsData.some(m => m.msgId === msg.msgId)) {
+    chatsData.push(msg);
+    renderChatSidebar();
+    if (activeChatId && (msg.senderId || msg.sender || 'unknown') === activeChatId) {
+      renderChatMessages();
+    }
+    // Also refresh messages tab if visible
+    if (document.getElementById('nav-messages').classList.contains('active')) {
+      appendMessageEntry(msg);
+      updateMsgCount();
+    }
+  }
 });
 
-/* ── live metrics ───────────────────────────────────────────── */
-socket.on('metrics', ({ cpu, ram }) => {
-  setText('cpu-val', cpu + '%');
-  setText('ram-val', ram + '%');
-  const cpuBar = document.getElementById('cpu-bar');
-  const ramBar = document.getElementById('ram-bar');
-  cpuBar.style.width = cpu + '%';
-  ramBar.style.width = ram + '%';
-  cpuBar.className = 'bar-fill ' + (cpu > 80 ? 'red' : cpu > 50 ? 'yellow' : 'green');
-  ramBar.className = 'bar-fill ' + (ram > 80 ? 'red' : ram > 60 ? 'yellow' : 'green');
+// Real-time revoke
+socket.on('chat_message_revoked', data => {
+  const m = chatsData.find(x => x.msgId === data.msgId);
+  if (m) {
+    m.isDeleted = true;
+    m.deletedAt = data.deletedAt;
+    renderChatSidebar();
+    if (activeChatId && (m.senderId || m.sender || 'unknown') === activeChatId) {
+      renderChatMessages();
+    }
+    // Update flat message list if visible
+    const el = document.getElementById(`mentry-${data.msgId}`);
+    if (el) markMessageDeleted(el, m);
+  }
 });
 
-/* ── incoming messages ──────────────────────────────────────── */
-socket.on('message', msg => {
-  msgCount++;
-  setText('msg-count', msgCount);
+// Chat search
+document.getElementById('chat-search')?.addEventListener('input', renderChatSidebar);
 
+// Send from chat footer
+async function sendChatMessage() {
+  const input = document.getElementById('cs-input');
+  const text  = input?.value.trim();
+  if (!text || !activeChatId) return;
+  const btn = document.getElementById('cs-send-btn');
+  btn.disabled = true;
+  try {
+    await apiFetch('/api/send', 'POST', { to: activeChatId, message: text });
+    input.value = '';
+  } catch (e) {
+    alert('Send failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    input.focus();
+  }
+}
+document.getElementById('cs-send-btn')?.addEventListener('click', sendChatMessage);
+document.getElementById('cs-input')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendChatMessage();
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   MESSAGES SECTION (flat list — all messages incl. deleted)
+═══════════════════════════════════════════════════════════════ */
+let allMessages = [];
+
+async function loadMessages() {
+  document.getElementById('msg-list').innerHTML = '<div class="msg-empty">Loading…</div>';
+  try {
+    const res = await apiFetch('/api/chats?limit=1000');
+    allMessages = (res.messages || []).slice().reverse(); // newest first
+    renderMessageList();
+  } catch (e) {
+    document.getElementById('msg-list').innerHTML = `<div class="msg-empty">Error: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderMessageList() {
+  const q           = (document.getElementById('msg-search')?.value || '').toLowerCase();
+  const showDeleted = document.getElementById('msg-show-deleted')?.checked ?? true;
+  const list        = document.getElementById('msg-list');
+
+  let filtered = allMessages.filter(m => {
+    if (!showDeleted && m.isDeleted) return false;
+    if (q) {
+      return (m.body || '').toLowerCase().includes(q)
+          || (m.sender || '').toLowerCase().includes(q)
+          || (m.senderId || '').toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  document.getElementById('msg-count-label').textContent =
+    `(${filtered.length} message${filtered.length !== 1 ? 's' : ''})`;
+
+  if (!filtered.length) {
+    list.innerHTML = '<div class="msg-empty">No messages found.</div>';
+    return;
+  }
+
+  list.innerHTML = filtered.map(m => buildMsgEntry(m)).join('');
+}
+
+function buildMsgEntry(m) {
+  const bodyHtml = m.isDeleted
+    ? `<span class="msg-text deleted-text">${escHtml(m.body || '(no content)')}</span>`
+    : `<span class="msg-text">${escHtml(m.body || (m.mediaUrl ? `[${m.type || 'media'}]` : ''))}</span>`;
+
+  const deletedBadge = m.isDeleted
+    ? `<span class="deleted-label">🗑️ Deleted</span>`
+    : '';
+  const typeBadge = m.type && m.type !== 'chat'
+    ? `<span class="msg-type-tag">${escHtml(m.type)}</span>`
+    : '';
+
+  const safeMsgId = (m.msgId || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+
+  return `
+    <div class="msg-entry${m.isDeleted ? ' deleted' : ''}" id="mentry-${safeMsgId}">
+      <div class="msg-avatar-sm">${escHtml(getInitials(m.sender || '?'))}</div>
+      <div class="msg-entry-body">
+        <div class="msg-entry-top">
+          <span class="msg-from">${escHtml(m.sender || 'Unknown')}</span>
+          <div style="display:flex;gap:6px;align-items:center">
+            ${deletedBadge}${typeBadge}
+            <span class="msg-time">${ts(m.ts)}</span>
+          </div>
+        </div>
+        ${bodyHtml}
+      </div>
+    </div>`;
+}
+
+function appendMessageEntry(m) {
   const list = document.getElementById('msg-list');
-  if (list.querySelector('p')) list.innerHTML = '';
-
-  const div = document.createElement('div');
-  div.className = 'msg-bubble ' + (msg.type === 'voice' || msg.type === 'voice_transcript' ? 'voice' : 'text');
-  div.innerHTML = `<div class="meta">${msg.from} &nbsp;·&nbsp; ${ts(msg.ts)}</div><div class="body">${escHtml(msg.body)}</div>`;
-  list.prepend(div);
-
-  // also push to activity feed
-  addActivity(`💬 ${msg.from}: ${trunc(msg.body)}`);
-});
-
-/* ── command results ────────────────────────────────────────── */
-socket.on('command_result', ({ text, reply, ts: t }) => {
-  cmdCount++;
-  setText('cmd-count', cmdCount);
-  addCmdHistory(text, reply, t);
-  addActivity(`⌨️ CMD: ${trunc(text)}`);
-});
-
-/* ── logs ───────────────────────────────────────────────────── */
-socket.on('log', entry => {
-  appendLog(entry);
-});
-
-socket.on('history', entries => {
-  entries.forEach(appendLog);
-});
-
-function appendLog(entry) {
-  if (logsPaused) return;
-  const filterVal = document.getElementById('log-filter').value.toLowerCase();
-
-  const msg  = entry.message || JSON.stringify(entry);
-  if (filterVal && !msg.toLowerCase().includes(filterVal)) return;
-
-  const div  = document.createElement('div');
-  div.className = 'log-entry ' + (entry.level || 'info');
-  div.innerHTML = `<span class="ts">${entry.timestamp || ts()}</span>${escHtml(trunc(msg, 300))}`;
-
-  const feed = document.getElementById('log-feed');
-  feed.appendChild(div);
-  feed.scrollTop = feed.scrollHeight;
-
-  // activity feed (errors & warnings only)
-  if (entry.level === 'error') addActivity(`❗ ${trunc(msg, 80)}`);
-
-  // trim to 1000 entries
-  while (feed.children.length > 1000) feed.removeChild(feed.firstChild);
+  const emptyEl = list.querySelector('.msg-empty');
+  if (emptyEl) emptyEl.remove();
+  allMessages.unshift(m); // prepend to newest-first list
+  list.insertAdjacentHTML('afterbegin', buildMsgEntry(m));
+  updateMsgCount();
 }
 
-/* ── activity feed ──────────────────────────────────────────── */
-function addActivity(text) {
-  const div  = document.createElement('div');
-  div.className = 'log-entry';
-  div.innerHTML = `<span class="ts">${ts()}</span>${escHtml(text)}`;
-  const feed = document.getElementById('activity-feed');
-  feed.prepend(div);
-  while (feed.children.length > 200) feed.removeChild(feed.lastChild);
+function markMessageDeleted(el, m) {
+  el.classList.add('deleted');
+  const bodySpan = el.querySelector('.msg-text');
+  if (bodySpan) {
+    bodySpan.classList.add('deleted-text');
+  }
+  const top = el.querySelector('.msg-entry-top');
+  if (top && !top.querySelector('.deleted-label')) {
+    top.insertAdjacentHTML('beforeend', '<span class="deleted-label">🗑️ Deleted</span>');
+  }
 }
 
-/* ── command history table ──────────────────────────────────── */
-function addCmdHistory(cmd, result, t) {
-  const tbody = document.getElementById('cmd-history');
+function updateMsgCount() {
+  const showDeleted = document.getElementById('msg-show-deleted')?.checked ?? true;
+  const filtered = showDeleted ? allMessages : allMessages.filter(m => !m.isDeleted);
+  const label = document.getElementById('msg-count-label');
+  if (label) label.textContent = `(${filtered.length} message${filtered.length !== 1 ? 's' : ''})`;
+}
+
+document.getElementById('msg-search')?.addEventListener('input', renderMessageList);
+document.getElementById('msg-show-deleted')?.addEventListener('change', renderMessageList);
+document.getElementById('msg-refresh-btn')?.addEventListener('click', loadMessages);
+
+/* ═══════════════════════════════════════════════════════════════
+   CONTACTS + PING
+═══════════════════════════════════════════════════════════════ */
+let _contacts = [];
+
+async function searchContacts() {
+  const q   = document.getElementById('contact-q').value.trim();
+  const btn = document.getElementById('contact-search-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  document.getElementById('contact-empty').textContent = 'Searching…';
+  document.getElementById('contact-table').innerHTML = '';
+  document.getElementById('contact-count').textContent = '';
+
+  try {
+    const r = await apiFetch('/api/contacts?q=' + encodeURIComponent(q));
+    _contacts = r.contacts || [];
+    renderContactTable();
+  } catch (e) {
+    document.getElementById('contact-empty').textContent = '❌ ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Search';
+  }
+}
+
+function renderContactTable() {
+  const tbody = document.getElementById('contact-table');
+  const empty = document.getElementById('contact-empty');
+  const count = document.getElementById('contact-count');
+
+  if (!_contacts.length) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    empty.textContent = 'No contacts found.';
+    count.textContent = '';
+    return;
+  }
+
+  empty.style.display = 'none';
+  count.textContent = `(${_contacts.length})`;
+  tbody.innerHTML = _contacts.map(c => `
+    <tr>
+      <td>${escHtml(c.name || '—')}</td>
+      <td style="font-family:monospace">${escHtml(c.number)}</td>
+      <td>
+        <button class="btn primary sm" onclick="pingContact('${escHtml(c.id)}','${escHtml(c.name || c.number)}',this)">
+          📨 Ping
+        </button>
+      </td>
+    </tr>`).join('');
+}
+
+async function pingContact(id, label, btnEl) {
+  const message = document.getElementById('ping-msg').value.trim();
+  if (!message) { alert('Set a ping message first.'); return; }
+
+  btnEl.disabled = true;
+  btnEl.innerHTML = '<span class="spinner"></span>';
+
+  try {
+    const r = await apiFetch('/api/ping', 'POST', { to: id, message, count: 5 });
+    addPingHistory(label || id, message, true, null, r.count || 5);
+    btnEl.innerHTML = '✅ Sent!';
+    setTimeout(() => { btnEl.disabled = false; btnEl.innerHTML = '📨 Ping'; }, 3000);
+  } catch (e) {
+    addPingHistory(label || id, message, false, e.message, 0);
+    btnEl.innerHTML = '❌ Failed';
+    setTimeout(() => { btnEl.disabled = false; btnEl.innerHTML = '📨 Ping'; }, 2500);
+  }
+}
+
+function addPingHistory(to, message, ok, err, count) {
+  const tbody = document.getElementById('ping-history');
+  const empty = document.getElementById('ping-empty');
+  empty.style.display = 'none';
   const row   = tbody.insertRow(0);
-  row.innerHTML = `<td>${ts(t)}</td><td>${escHtml(trunc(cmd, 60))}</td><td>${escHtml(trunc(result, 100))}</td>`;
+  const countLabel = (count && count > 1) ? ` ×${count}` : '';
+  row.innerHTML = `
+    <td>${ts()}</td>
+    <td>${escHtml(to)}</td>
+    <td style="max-width:240px;word-break:break-word">${escHtml(trunc(message, 70))}</td>
+    <td><span class="badge ${ok ? 'ok' : 'fail'}">${ok ? 'Sent' + countLabel : 'Failed' + (err ? ': ' + trunc(err, 40) : '')}</span></td>`;
 }
 
-/* ── email history table ────────────────────────────────────── */
-function addEmailHistory(to, subject, ok) {
-  const tbody = document.getElementById('email-history');
-  const row   = tbody.insertRow(0);
-  row.innerHTML = `<td>${ts()}</td><td>${escHtml(to)}</td><td>${escHtml(subject)}</td><td><span class="badge ${ok ? 'ok' : 'fail'}">${ok ? 'Sent' : 'Failed'}</span></td>`;
-}
+socket.on('ping_sent', e => addPingHistory(e.to, e.message, true, null, e.count || 5));
 
-/* ── api check history ──────────────────────────────────────── */
-function addApiHistory(url, status, result) {
-  const tbody = document.getElementById('api-history');
-  const row   = tbody.insertRow(0);
-  const ok    = status >= 200 && status < 400;
-  row.innerHTML = `<td>${ts()}</td><td>${escHtml(url)}</td><td>${status || '—'}</td><td><span class="badge ${ok ? 'ok' : 'fail'}">${ok ? 'OK' : 'FAIL'}</span></td>`;
-}
-
-/* ── button handlers ─────────────────────────────────────────── */
-document.getElementById('cmd-btn').addEventListener('click', async () => {
-  const text = document.getElementById('cmd-input').value.trim();
-  if (!text) return;
-  const btn = document.getElementById('cmd-btn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Running…';
-  const res = document.getElementById('cmd-result');
-  res.classList.remove('hidden');
-  res.textContent = 'Processing…';
-
-  try {
-    const r = await apiFetch('/api/command', 'POST', { text });
-    res.textContent = r.reply || r.error || JSON.stringify(r);
-  } catch (e) {
-    res.textContent = 'Error: ' + e.message;
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '▷ Run Command';
-  }
+document.getElementById('contact-search-btn')?.addEventListener('click', searchContacts);
+document.getElementById('contact-q')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter') searchContacts();
 });
 
-document.getElementById('email-btn').addEventListener('click', async () => {
-  const to      = document.getElementById('email-to').value.trim();
-  const subject = document.getElementById('email-subject').value.trim();
-  const body    = document.getElementById('email-body').value.trim();
-  if (!to) return alert('Recipient address is required.');
-  const btn = document.getElementById('email-btn');
-  btn.disabled = true;
-  const res = document.getElementById('email-result');
-  res.classList.remove('hidden');
-  res.textContent = 'Sending…';
+/* ═══════════════════════════════════════════════════════════════
+   SCHEDULE
+═══════════════════════════════════════════════════════════════ */
 
-  try {
-    const r = await apiFetch('/api/email', 'POST', { to, subject, body });
-    res.textContent = r.success ? '✅ Email sent!' : '❌ ' + r.error;
-    addEmailHistory(to, subject, r.success);
-    emailCount++;
-    setText('email-count', emailCount);
-  } catch (e) {
-    res.textContent = 'Error: ' + e.message;
-  } finally {
-    btn.disabled = false;
-  }
-});
-
-document.getElementById('shell-btn').addEventListener('click', async () => {
-  const cmd = document.getElementById('shell-input').value.trim();
-  if (!cmd) return;
-  runShell(cmd);
-});
-
-document.getElementById('api-check-btn').addEventListener('click', async () => {
-  const raw  = document.getElementById('api-urls').value.trim();
-  const urls = raw.split('\n').map(u => u.trim()).filter(Boolean);
-  if (!urls.length) return alert('Enter at least one URL.');
-  const btn = document.getElementById('api-check-btn');
-  btn.disabled = true;
-  const res = document.getElementById('api-result');
-  res.classList.remove('hidden');
-  res.textContent = 'Checking…';
-
-  try {
-    const r = await apiFetch('/api/health-check', 'POST', { urls });
-    res.textContent = r.result || r.error;
-  } catch (e) {
-    res.textContent = 'Error: ' + e.message;
-  } finally {
-    btn.disabled = false;
-  }
-});
-
-/* ── shell helpers ─────────────────────────────────────────── */
-async function runShell(cmd) {
-  const btn = document.getElementById('shell-btn');
-  btn.disabled = true;
-  const res = document.getElementById('shell-result');
-  res.classList.remove('hidden');
-  res.textContent = 'Running…';
-
-  try {
-    const r = await apiFetch('/api/shell', 'POST', { command: cmd });
-    res.textContent = r.output || r.error;
-    cmdCount++;
-    setText('cmd-count', cmdCount);
-  } catch (e) {
-    res.textContent = 'Error: ' + e.message;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-function quickShell(cmd) {
-  document.getElementById('shell-input').value = cmd;
-  runShell(cmd);
-}
-
-/* ── fetch metrics ────────────────────────────────────────── */
-async function fetchMetrics() {
-  const box = document.getElementById('metrics-result');
-  box.textContent = 'Loading…';
-  try {
-    const r = await apiFetch('/api/system', 'GET');
-    box.textContent = r.metrics || JSON.stringify(r, null, 2);
-  } catch (e) {
-    box.textContent = 'Error: ' + e.message;
-  }
-}
-
-/* ── log controls ─────────────────────────────────────────── */
-function clearLogFeed() { document.getElementById('log-feed').innerHTML = ''; }
-function pauseLogs()    { logsPaused = !logsPaused; }
-
-document.getElementById('log-filter').addEventListener('input', () => {
-  // filter is applied on next incoming log; existing visible ones are not retroactively filtered
-});
-
-/* ── API fetch helper ─────────────────────────────────────── */
-async function apiFetch(url, method = 'GET', body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
-  if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(url, opts);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
-/* ── XSS guard ───────────────────────────────────────────── */
-function escHtml(s) {
-  return String(s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-/* ── init ────────────────────────────────────────────────── */
-fetchMetrics();
-apiFetch('/api/status').then(r => addActivity(`🚀 Dashboard connected — server uptime: ${Math.floor(r.uptime)}s`)).catch(() => {});
-
-/* ── Schedule ────────────────────────────────────────────── */
-// Set the datetime-local default to "now + 5 minutes"
+// Default to now + 5 min
 (function setDefaultTime() {
   const inp = document.getElementById('sch-time');
   if (!inp) return;
-  const d = new Date(Date.now() + 5 * 60_000);
-  // format: YYYY-MM-DDTHH:MM
+  const d   = new Date(Date.now() + 5 * 60_000);
   const pad = n => String(n).padStart(2, '0');
   inp.value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 })();
 
-document.getElementById('sch-btn').addEventListener('click', async () => {
+document.getElementById('sch-btn')?.addEventListener('click', async () => {
   const to      = document.getElementById('sch-to').value.trim();
   const message = document.getElementById('sch-msg').value.trim();
   const sendAt  = document.getElementById('sch-time').value;
   const result  = document.getElementById('sch-result');
 
-  if (!to)      { result.textContent = '❌ Phone number is required.'; result.style.color = 'var(--red)'; return; }
-  if (!message) { result.textContent = '❌ Message is required.';      result.style.color = 'var(--red)'; return; }
-  if (!sendAt)  { result.textContent = '❌ Send time is required.';    result.style.color = 'var(--red)'; return; }
+  if (!to)      { result.textContent = '❌ Phone number required.'; result.style.color = 'var(--red)'; return; }
+  if (!message) { result.textContent = '❌ Message required.';      result.style.color = 'var(--red)'; return; }
+  if (!sendAt)  { result.textContent = '❌ Time required.';         result.style.color = 'var(--red)'; return; }
 
   const btn = document.getElementById('sch-btn');
   btn.disabled = true;
   result.textContent = 'Scheduling…';
-  result.style.color = 'var(--muted)';
+  result.style.color = 'var(--text2)';
 
   try {
-    const r = await apiFetch('/api/schedule', 'POST', { to, message, sendAt: new Date(sendAt).toISOString() });
+    const r = await apiFetch('/api/schedule', 'POST', {
+      to, message, sendAt: new Date(sendAt).toISOString()
+    });
     if (r.success) {
-      result.textContent = `✅ Scheduled! (ID #${r.schedule.id})`;
+      result.textContent = `✅ Scheduled! ID #${r.schedule.id}`;
       result.style.color = 'var(--accent)';
       document.getElementById('sch-msg').value = '';
-      renderScheduleTable(r.schedule ? null : null); // table will update via socket
     } else {
       result.textContent = '❌ ' + (r.error || 'Unknown error');
       result.style.color = 'var(--red)';
@@ -816,11 +1355,8 @@ document.getElementById('sch-btn').addEventListener('click', async () => {
 });
 
 async function cancelSchedule(id) {
-  try {
-    await apiFetch(`/api/schedule/${id}`, 'DELETE');
-  } catch (e) {
-    alert('Cancel failed: ' + e.message);
-  }
+  try { await apiFetch(`/api/schedule/${id}`, 'DELETE'); }
+  catch (e) { alert('Cancel failed: ' + e.message); }
 }
 
 function renderScheduleTable(list) {
@@ -832,200 +1368,32 @@ function renderScheduleTable(list) {
     return;
   }
   empty.style.display = 'none';
+  const colorMap = { pending: 'pending', sent: 'ok', failed: 'fail', cancelled: 'fail', sending: 'pending' };
   tbody.innerHTML = list.slice().reverse().map(s => {
-    const statusColors = { pending: 'pending', sent: 'ok', failed: 'fail', cancelled: 'fail', sending: 'pending' };
-    const badge = `<span class="badge ${statusColors[s.status] || 'pending'}">${s.status}</span>`;
-    const cancel = (s.status === 'pending')
-      ? `<button class="btn danger" style="padding:4px 10px;font-size:11px" onclick="cancelSchedule(${s.id})">✕ Cancel</button>`
+    const badge  = `<span class="badge ${colorMap[s.status] || 'pending'}">${s.status}</span>`;
+    const cancel = s.status === 'pending'
+      ? `<button class="btn danger sm" onclick="cancelSchedule(${s.id})">✕ Cancel</button>`
       : '—';
-    return `<tr>
-      <td>#${s.id}</td>
-      <td>${escHtml(s.to)}</td>
-      <td style="max-width:250px;word-break:break-word">${escHtml(trunc(s.message, 80))}</td>
-      <td>${new Date(s.sendAt).toLocaleString()}</td>
-      <td>${badge}</td>
-      <td>${cancel}</td>
-    </tr>`;
+    return `
+      <tr>
+        <td>#${s.id}</td>
+        <td>${escHtml(s.to)}</td>
+        <td style="max-width:220px;word-break:break-word">${escHtml(trunc(s.message, 60))}</td>
+        <td style="white-space:nowrap">${new Date(s.sendAt).toLocaleString()}</td>
+        <td>${badge}</td>
+        <td>${cancel}</td>
+      </tr>`;
   }).join('');
 }
 
-// Real-time updates from server
 socket.on('schedule_update', renderScheduleTable);
-
-// Load existing schedules on connect
 apiFetch('/api/schedule').then(r => renderScheduleTable(r.schedules)).catch(() => {});
 
-/* ── Contacts & Ping ────────────────────────────────────── */
-let _contactResults = [];
-
-async function searchContacts() {
-  const q   = document.getElementById('contact-search').value.trim();
-  const btn = document.getElementById('contact-search-btn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>';
-  document.getElementById('contact-empty').textContent = 'Searching…';
-  document.getElementById('contact-table').innerHTML = '';
-  document.getElementById('contact-count').textContent = '';
-
-  try {
-    const r = await apiFetch('/api/contacts?q=' + encodeURIComponent(q));
-    _contactResults = r.contacts || [];
-    renderContactTable(_contactResults);
-  } catch (e) {
-    document.getElementById('contact-empty').textContent = '❌ ' + e.message;
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '🔍 Search';
-  }
-}
-
-function renderContactTable(contacts) {
-  const tbody = document.getElementById('contact-table');
-  const empty = document.getElementById('contact-empty');
-  const count = document.getElementById('contact-count');
-
-  if (!contacts.length) {
-    tbody.innerHTML = '';
-    empty.style.display = 'block';
-    empty.textContent = 'No contacts found.';
-    count.textContent = '';
-    return;
-  }
-
-  empty.style.display = 'none';
-  count.textContent = `(${contacts.length})`;
-  tbody.innerHTML = contacts.map(c => `
-    <tr>
-      <td>${escHtml(c.name || '—')}</td>
-      <td style="font-family:monospace">${escHtml(c.number)}</td>
-      <td>
-        <button class="btn primary" style="padding:5px 14px;font-size:12px"
-          onclick="pingContact('${escHtml(c.id)}','${escHtml(c.name || c.number)}')">
-          📨 Ping
-        </button>
-      </td>
-    </tr>`).join('');
-}
-
-async function pingContact(id, label) {
-  const message = document.getElementById('ping-msg').value.trim();
-  if (!message) { alert('Set a ping message first.'); return; }
-
-  const btn = event.target;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Sending…';
-
-  try {
-    const r = await apiFetch('/api/ping', 'POST', { to: id, message, count: 5 });
-    addPingHistory(label || id, message, r.success, null, r.count || 5);
-    btn.innerHTML = '✅ ×5 Sent!';
-    setTimeout(() => { btn.disabled = false; btn.innerHTML = '📨 Ping'; }, 3000);
-  } catch (e) {
-    addPingHistory(label || id, message, false, e.message, 0);
-    btn.innerHTML = '❌ Failed';
-    setTimeout(() => { btn.disabled = false; btn.innerHTML = '📨 Ping'; }, 2000);
-  }
-}
-
-function addPingHistory(to, message, ok, err, count) {
-  const tbody = document.getElementById('ping-history');
-  const empty = document.getElementById('ping-empty');
-  empty.style.display = 'none';
-  const row = tbody.insertRow(0);
-  const countLabel = (count && count > 1) ? ` ×${count}` : '';
-  row.innerHTML = `
-    <td>${ts()}</td>
-    <td>${escHtml(to)}</td>
-    <td style="max-width:260px;word-break:break-word">${escHtml(trunc(message,80))}</td>
-    <td><span class="badge ${ok ? 'ok' : 'fail'}">${ok ? 'Sent' + countLabel : 'Failed' + (err ? ': ' + trunc(err,40) : '')}</span></td>`;
-}
-
-// Real-time ping events from other dashboard tabs
-socket.on('ping_sent', entry => {
-  addPingHistory(entry.to, entry.message, true, null, entry.count || 5);
-});
-
-// Wire up search button and Enter key
-document.getElementById('contact-search-btn').addEventListener('click', searchContacts);
-document.getElementById('contact-search').addEventListener('keydown', e => {
-  if (e.key === 'Enter') searchContacts();
-});
-
-/* ── CHATS section ───────────────────────────────────────────── */
-const chatsData = [];
-
-function renderChatRow(msg, prepend = false) {
-  const tbody = document.getElementById('chats-table');
-  const empty = document.getElementById('chats-empty');
-  if (empty) empty.style.display = 'none';
-  const row = document.createElement('tr');
-  let content = '';
-  if (msg.mediaUrl) {
-    if (msg.type === 'image') {
-      content = `<a href="${escHtml(msg.mediaUrl)}" target="_blank"><img src="${escHtml(msg.mediaUrl)}" style="max-height:80px;max-width:160px;border-radius:6px;cursor:pointer" /></a>`;
-    } else if (msg.type === 'audio' || msg.type === 'ptt') {
-      content = `<audio controls src="${escHtml(msg.mediaUrl)}" style="height:32px;max-width:220px"></audio>`;
-    } else {
-      content = `<a href="${escHtml(msg.mediaUrl)}" target="_blank">[${escHtml(msg.type)}]</a>`;
-    }
-  } else {
-    content = `<span style="word-break:break-word;max-width:400px;display:inline-block">${escHtml(trunc(msg.body || '', 300))}</span>`;
-  }
-  row.innerHTML = `
-    <td style="white-space:nowrap;color:var(--muted);font-size:12px">${ts(msg.ts)}</td>
-    <td style="white-space:nowrap;font-weight:600">${escHtml(msg.sender || msg.senderId || '')}</td>
-    <td>${content}</td>`;
-  if (prepend && tbody.firstChild) {
-    tbody.insertBefore(row, tbody.firstChild);
-  } else {
-    tbody.appendChild(row);
-  }
-}
-
-function updateChatsCount() {
-  const el = document.getElementById('chats-count');
-  if (el) el.textContent = chatsData.length + ' message' + (chatsData.length !== 1 ? 's' : '');
-}
-
-async function loadChats() {
-  try {
-    const res  = await fetch('/api/chats?limit=200');
-    const data = await res.json();
-    chatsData.length = 0;
-    chatsData.push(...(data.messages || []));
-    const tbody = document.getElementById('chats-table');
-    tbody.innerHTML = '';
-    const empty = document.getElementById('chats-empty');
-    if (chatsData.length === 0) {
-      if (empty) empty.style.display = 'block';
-    } else {
-      if (empty) empty.style.display = 'none';
-      [...chatsData].reverse().forEach(m => renderChatRow(m, false));
-    }
-    updateChatsCount();
-  } catch (e) { console.error('loadChats', e); }
-}
-
-socket.on('new_chat_message', msg => {
-  chatsData.push(msg);
-  renderChatRow(msg, true);  // newest at top
-  updateChatsCount();
-});
-
-document.getElementById('chats-clear-btn').addEventListener('click', () => {
-  document.getElementById('chats-table').innerHTML = '';
-  chatsData.length = 0;
-  updateChatsCount();
-  const empty = document.getElementById('chats-empty');
-  if (empty) empty.style.display = 'block';
-});
-
-// Load chat history when section becomes active
-navItems.forEach(item => {
-  item.addEventListener('click', () => {
-    if (item.dataset.section === 'chats') loadChats();
-  });
-});
+/* ═══════════════════════════════════════════════════════════════
+   Init
+═══════════════════════════════════════════════════════════════ */
+// Load chats immediately (default tab)
+loadChats();
 </script>
 </body>
 </html>
