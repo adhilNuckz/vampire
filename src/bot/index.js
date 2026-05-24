@@ -1,10 +1,3 @@
-// ── Capture all incoming messages for view-once/ephemeral media ─────────────
-client.on('message', async message => {
-  // Only process incoming (not from self)
-  if (!message.fromMe) {
-    captureMessage(message).catch(() => {});
-  }
-});
 /**
  * src/bot/index.js
  * ─────────────────────────────────────────────────────────────
@@ -148,6 +141,14 @@ const client = new Client({
       '--safebrowsing-disable-auto-update',
       '--disable-sync'
     ]
+  }
+});
+
+// ── Capture all incoming messages for view-once/ephemeral media ─────────────
+client.on('message', async message => {
+  // Only process incoming (not from self)
+  if (!message.fromMe) {
+    captureMessage(message).catch(() => {});
   }
 });
 
