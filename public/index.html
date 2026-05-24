@@ -84,6 +84,28 @@
       font-size: 12px;
       color: var(--text2);
     }
+    .autopilot-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 5px 10px 5px 12px;
+    }
+    .autopilot-pill .label {
+      font-size: 12px;
+      color: var(--text2);
+      white-space: nowrap;
+    }
+    .autopilot-pill .state {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .6px;
+      text-transform: uppercase;
+    }
+    .autopilot-pill .state.off { color: var(--red); }
+    .autopilot-pill .state.on { color: var(--accent); }
     .status-dot {
       width: 8px; height: 8px;
       border-radius: 50%;
@@ -640,6 +662,10 @@
   <!-- ── Topbar ── -->
   <header class="topbar">
     <div class="logo">💬 WhatsApp<span>Dashboard</span></div>
+    <button class="btn secondary autopilot-pill" id="autopilot-btn" type="button">
+      <span class="label">Auto Pilot</span>
+      <span class="state off" id="autopilot-state">OFF</span>
+    </button>
     <div class="status-pill">
       <div class="status-dot" id="status-dot"></div>
       <span id="status-text">Connecting…</span>
@@ -904,6 +930,15 @@ socket.on('status', ({ connected, message }) => {
   txt.textContent = message || (connected ? 'Connected' : 'Disconnected');
   if (connected) document.getElementById('qr-overlay').classList.remove('show');
 });
+function renderAutopilotState(enabled) {
+  const stateEl = document.getElementById('autopilot-state');
+  const btn = document.getElementById('autopilot-btn');
+  if (!stateEl || !btn) return;
+  stateEl.textContent = enabled ? 'ON' : 'OFF';
+  stateEl.className = 'state ' + (enabled ? 'on' : 'off');
+  btn.classList.toggle('primary', enabled);
+  btn.classList.toggle('secondary', !enabled);
+}
 socket.on('connect',    () => document.getElementById('status-text').textContent = 'Socket connected');
 socket.on('disconnect', () => {
   document.getElementById('status-dot').className = 'status-dot';
@@ -912,6 +947,21 @@ socket.on('disconnect', () => {
 socket.on('qr', qr => {
   document.getElementById('qr-pre').textContent = qr;
   document.getElementById('qr-overlay').classList.add('show');
+});
+socket.on('autopilot_update', state => renderAutopilotState(Boolean(state?.enabled)));
+
+document.getElementById('autopilot-btn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('autopilot-btn');
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    const state = await apiFetch('/api/autopilot/toggle', 'POST');
+    renderAutopilotState(Boolean(state?.enabled));
+  } catch (e) {
+    alert('Auto Pilot toggle failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1393,6 +1443,9 @@ apiFetch('/api/schedule').then(r => renderScheduleTable(r.schedules)).catch(() =
    Init
 ═══════════════════════════════════════════════════════════════ */
 // Load chats immediately (default tab)
+apiFetch('/api/autopilot')
+  .then(state => renderAutopilotState(Boolean(state?.enabled)))
+  .catch(() => renderAutopilotState(false));
 loadChats();
 </script>
 </body>

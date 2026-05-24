@@ -20,10 +20,10 @@ const qrcode  = require('qrcode-terminal');
 const ffmpeg  = require('fluent-ffmpeg');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { logger, logBus }    = require('../utils/logger');
-const { processMessage, transcribeAudio } = require('../services/processor');
-const { verifySMTP }        = require('../services/email');
+const { generateAutoReply } = require('../services/processor');
 const { setClient }         = require('../services/whatsappClient');
 const { addMessage: addChatMessage } = require('../services/chatStore');
+const { getAutoPilotState } = require('../services/autopilot');
 require('dotenv').config();
 
 // ── global error safety net ───────────────────────────────────────────────────
@@ -227,64 +227,26 @@ client.on('message_create', async message => {
     // ── capture message (incoming & outgoing) ────────────────────────────
     captureMessage(message).catch(() => {});
 
-    // skip outgoing messages that aren't commands (prevents processing bot's own replies)
-    if (message.fromMe && !message.body?.startsWith(CMD_PREFIX)) return;
+    if (message.fromMe) return;
 
     const senderId  = parseSenderId(message.from);
     const chat      = await message.getChat();
-    const fromAgent = chat.name?.toLowerCase() === AGENT_CHAT_NAME.toLowerCase();
-    const fromAdmin = isAuthorised(senderId);
+    const body = message.body || '';
+    if (message.type !== 'chat' || chat.isGroup || message.from?.endsWith('@g.us')) return;
+    if (!body.trim()) return;
 
-    if (!fromAgent && !fromAdmin) return;
+    const autopilot = getAutoPilotState();
+    if (!autopilot.enabled) return;
 
-    // ── text ─────────────────────────────────────────────────────────────────
-    if (message.type === 'chat') {
-      const body        = message.body || '';
-      const needsPrefix = CMD_PREFIX?.length > 0;
-      if (needsPrefix && !body.startsWith(CMD_PREFIX) && !fromAgent) return;
+    const contact = await message.getContact().catch(() => ({}));
+    const chatName = chat.name || contact.pushname || contact.name || senderId;
+    const senderName = contact.pushname || contact.name || chatName || senderId;
 
-      const text = needsPrefix && body.startsWith(CMD_PREFIX)
-        ? body.slice(CMD_PREFIX.length).trim() : body.trim();
-      if (!text) return;
+    logger.logMessage({ from: senderId, body, type: 'text' });
+    logBus.emit('message', { from: senderId, body, type: 'text', ts: Date.now() });
 
-      logger.logMessage({ from: senderId, body: text, type: 'text' });
-      logBus.emit('message', { from: senderId, body: text, type: 'text', ts: Date.now() });
-
-      if (isRateLimited(senderId)) {
-        return sendReply(message, '⏳ Rate limit reached. Wait a moment before sending more commands.');
-      }
-
-      return sendReply(message, await processMessage(text, senderId));
-    }
-
-    // ── voice note ───────────────────────────────────────────────────────────
-    if (message.type === 'ptt' || message.type === 'audio') {
-      logger.info(`Voice note from ${senderId}`);
-      logBus.emit('message', { from: senderId, body: '[voice note]', type: 'voice', ts: Date.now() });
-
-      await sendReply(message, '🎙 Processing your voice note…');
-
-      let oggPath, wavPath;
-      try {
-        ({ localPath: oggPath } = await downloadMedia(message));
-        wavPath    = await convertToWav(oggPath);
-        const buf  = await fs.readFile(wavPath);
-        const text = await transcribeAudio(buf, 'audio/wav');
-
-        if (!text) return sendReply(message, '❌ Could not transcribe. Please try text instead.');
-
-        logBus.emit('message', { from: senderId, body: `[voice→text]: ${text}`, type: 'voice_transcript', ts: Date.now() });
-        await sendReply(message, `📝 _Heard:_ "${text}"\n\nProcessing…`);
-        return sendReply(message, await processMessage(text, senderId));
-
-      } catch (err) {
-        logger.error(`Voice error: ${err.message}`);
-        return sendReply(message, `❌ Voice processing failed: ${err.message}`);
-      } finally {
-        if (oggPath) fs.remove(oggPath).catch(() => {});
-        if (wavPath) fs.remove(wavPath).catch(() => {});
-      }
-    }
+    const reply = await generateAutoReply({ chatName, senderName, messageText: body });
+    return sendReply(message, reply);
 
   } catch (err) {
     logger.error(`Message handler: ${err.message}\n${err.stack}`);
@@ -294,8 +256,8 @@ client.on('message_create', async message => {
 // ── startup ───────────────────────────────────────────────────────────────────
 (async () => {
   logger.info('Starting WhatsApp agent…');
-  const smtp = await verifySMTP();
-  logger[smtp.ok ? 'info' : 'warn'](`SMTP: ${smtp.message}`);
+  const autoPilot = getAutoPilotState();
+  logger.info(`Auto Pilot is ${autoPilot.enabled ? 'enabled' : 'disabled'}`);
   client.initialize();
 })().catch(err => {
   logger.error(`Fatal bot startup: ${err.message}\n${err.stack}`);

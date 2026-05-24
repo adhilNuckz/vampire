@@ -23,6 +23,15 @@ fs.ensureDirSync(DATA_DIR);
 const DB_FILE = path.join(DATA_DIR, "vampire.db");
 
 const useMySQL = process.env.DB_USE_MYSQL === "true";
+let mysqlFailed = false;
+let mysqlFallbackWarned = false;
+
+function useSQLiteFallback(reason) {
+  if (!mysqlFallbackWarned) {
+    logger.warn(`MySQL unavailable, using SQLite fallback: ${reason}`);
+    mysqlFallbackWarned = true;
+  }
+}
 
 // ── sql.js SQLite ─────────────────────────────────────────────
 let _sqliteDB   = null;   // sql.js Database instance
@@ -155,7 +164,7 @@ let pool        = null;
 let schemaReady = null;
 
 async function initMySQL() {
-  if (pool) return;
+  if (pool || mysqlFailed) return;
   const mysql = require("mysql2/promise");
   pool = mysql.createPool({
     host:               process.env.DB_HOST     || "localhost",
@@ -190,7 +199,8 @@ async function initMySQL() {
       ];
       return Promise.all(alters.map(sql => pool.execute(sql).catch(() => {})));
     }).catch(err => {
-      logger.error(`MySQL schema init: ${err.message}`);
+      mysqlFailed = true;
+      logger.warn(`MySQL unavailable, using SQLite fallback: ${err.message}`);
       pool        = null;
       schemaReady = null;
     });
@@ -262,17 +272,35 @@ async function revokeChatMessageMySQL(msgId) {
 // ── Unified API ───────────────────────────────────────────────
 
 async function saveChatMessage(entry) {
-  if (useMySQL) return saveChatMessageMySQL(entry);
+  if (useMySQL && !mysqlFailed) {
+    try {
+      return await saveChatMessageMySQL(entry);
+    } catch (err) {
+      useSQLiteFallback(err.message);
+    }
+  }
   return saveChatMessageSQLite(entry);
 }
 
 async function getRecentChatMessages(limit) {
-  if (useMySQL) return getRecentChatMessagesMySQL(limit);
+  if (useMySQL && !mysqlFailed) {
+    try {
+      return await getRecentChatMessagesMySQL(limit);
+    } catch (err) {
+      useSQLiteFallback(err.message);
+    }
+  }
   return getRecentChatMessagesSQLite(limit);
 }
 
 async function revokeChatMessage(msgId) {
-  if (useMySQL) return revokeChatMessageMySQL(msgId);
+  if (useMySQL && !mysqlFailed) {
+    try {
+      return await revokeChatMessageMySQL(msgId);
+    } catch (err) {
+      useSQLiteFallback(err.message);
+    }
+  }
   return revokeChatMessageSQLite(msgId);
 }
 

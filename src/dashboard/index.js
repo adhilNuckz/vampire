@@ -18,6 +18,7 @@ const cors       = require('cors');
 const { logger, logBus }          = require('../utils/logger');
 const { sendWhatsApp, getClient } = require('../services/whatsappClient');
 const { getMessages: getChatMessages } = require('../services/chatStore');
+const { getAutoPilotState, setAutoPilotEnabled, toggleAutoPilot } = require('../services/autopilot');
 require('dotenv').config();
 
 // ── App setup ─────────────────────────────────────────────────
@@ -56,14 +57,32 @@ app.get('/api/chats', async (req, res) => {
     const msgs  = await getChatMessages(limit);
     res.json({ messages: msgs });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logger.warn(`Chat load fallback: ${err.message}`);
+    res.json({ messages: [] });
   }
+});
+
+app.get('/api/autopilot', (_, res) => {
+  res.json(getAutoPilotState());
+});
+
+app.post('/api/autopilot', (req, res) => {
+  const enabled = Boolean(req.body?.enabled);
+  const state = setAutoPilotEnabled(enabled);
+  io.emit('autopilot_update', state);
+  res.json(state);
+});
+
+app.post('/api/autopilot/toggle', (_, res) => {
+  const state = toggleAutoPilot();
+  io.emit('autopilot_update', state);
+  res.json(state);
 });
 
 // Contacts search
 app.get('/api/contacts', async (req, res) => {
   const client = getClient();
-  if (!client) return res.status(503).json({ error: 'WhatsApp not ready yet' });
+  if (!client) return res.json({ contacts: [] });
   try {
     const q        = (req.query.q || '').toLowerCase().trim();
     const contacts = await client.getContacts();
