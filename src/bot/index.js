@@ -81,13 +81,13 @@ const MEDIA_DIR = path.join(__dirname, '../../public/media');
 fs.ensureDirSync(MEDIA_DIR);
 
 async function captureMessage(message) {
+  const chatJid = message.fromMe ? message.to : message.from;
   if (
     message.from?.endsWith('@newsletter') ||
     message.type === 'newsletter' ||
-    message.author === null && message.from?.endsWith('@broadcast')
+    message.author === null && message.from?.endsWith('@broadcast') ||
+    chatJid?.endsWith('@g.us')
   ) return;
-
-  const chatJid = message.fromMe ? message.to : message.from;
   const conversationId = parseSenderId(chatJid);
 
   let contact;
@@ -138,13 +138,18 @@ async function sendReply(message, text) {
 
 // ── WhatsApp client ───────────────────────────────────────────────────────────
 const headless      = process.env.HEADLESS !== 'false';   // default true on server
-const browserPath   = process.env.BROWSER_PATH || null;   // set in .env
+const browserPath   = (process.env.BROWSER_PATH || '').trim();
+const resolvedBrowserPath = browserPath && fs.pathExistsSync(browserPath) ? browserPath : null;
+
+if (browserPath && !resolvedBrowserPath) {
+  logger.warn(`BROWSER_PATH is set but not found: ${browserPath} — falling back to Puppeteer's default browser lookup.`);
+}
 
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
   puppeteer: {
     headless,
-    ...(browserPath ? { executablePath: browserPath } : {}),
+    ...(resolvedBrowserPath ? { executablePath: resolvedBrowserPath } : {}),
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
