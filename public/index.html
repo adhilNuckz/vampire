@@ -6,13 +6,13 @@
   <title>WhatsApp Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <script src="/socket.io/socket.io.js"></script>
   <style>
     /* ── Reset & Tokens ────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg:        #0d1117;
+      --bg:        #0b1016;
       --surface:   #161b22;
       --surface2:  #21262d;
       --surface3:  #2d333b;
@@ -26,7 +26,8 @@
       --text:      #e6edf3;
       --text2:     #8b949e;
       --radius:    10px;
-      --font:      'Inter', system-ui, -apple-system, sans-serif;
+      --font-body: 'Manrope', 'Segoe UI', sans-serif;
+      --font-display: 'Space Grotesk', 'Segoe UI', sans-serif;
       --sidebar-w: 240px;
       --topbar-h:  56px;
       --transition: 0.2s ease;
@@ -34,9 +35,12 @@
 
     html, body {
       height: 100%;
-      background: var(--bg);
+      background:
+        radial-gradient(900px 520px at 12% -8%, rgba(37,211,102,0.18), transparent 60%),
+        radial-gradient(820px 520px at 88% 10%, rgba(88,166,255,0.16), transparent 60%),
+        var(--bg);
       color: var(--text);
-      font-family: var(--font);
+      font-family: var(--font-body);
       font-size: 14px;
       overflow: hidden;
     }
@@ -67,6 +71,7 @@
       font-weight: 700;
       color: var(--accent);
       letter-spacing: -0.5px;
+      font-family: var(--font-display);
       display: flex;
       align-items: center;
       gap: 8px;
@@ -198,6 +203,7 @@
       letter-spacing: 1px;
       color: var(--text2);
       margin-bottom: 16px;
+      font-family: var(--font-display);
     }
 
     /* ── Forms ─────────────────────────────────────────────────── */
@@ -211,7 +217,7 @@
       border-radius: 7px;
       padding: 9px 13px;
       color: var(--text);
-      font-family: var(--font);
+      font-family: var(--font-body);
       font-size: 13px;
       transition: border-color var(--transition);
       outline: none;
@@ -231,7 +237,7 @@
       cursor: pointer;
       font-size: 13px;
       font-weight: 600;
-      font-family: var(--font);
+      font-family: var(--font-body);
       transition: filter var(--transition), opacity var(--transition);
       white-space: nowrap;
     }
@@ -327,6 +333,7 @@
       font-size: 15px;
       font-weight: 700;
       color: var(--text);
+      font-family: var(--font-display);
     }
     .cs-search {
       background: var(--surface2);
@@ -601,6 +608,80 @@
       min-height: 28px;
     }
 
+    /* ══════════════════════════════════════════════════════════
+       HEALTH + LOGS SECTION
+    ══════════════════════════════════════════════════════════ */
+    .health-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+    }
+    .health-item {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+    }
+    .health-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text2);
+    }
+    .health-value {
+      margin-top: 6px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .health-value.good { color: var(--accent); }
+    .health-value.bad  { color: var(--red); }
+    .health-note {
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--text2);
+    }
+    .log-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .log-list {
+      margin-top: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 360px;
+      overflow-y: auto;
+    }
+    .log-entry {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .log-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 11px;
+      color: var(--text2);
+    }
+    .log-msg {
+      margin-top: 6px;
+      font-size: 13px;
+      white-space: pre-wrap;
+    }
+    .log-stack {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--text2);
+      white-space: pre-wrap;
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; }
+
     /* ── Responsive — mobile ───────────────────────────────────── */
     @media (max-width: 768px) {
       .app {
@@ -687,6 +768,9 @@
     </div>
     <div class="nav-item" data-section="schedule" id="nav-schedule">
       <span class="nav-icon">⏰</span> Schedule
+    </div>
+    <div class="nav-item" data-section="health" id="nav-health">
+      <span class="nav-icon">🩺</span> Health
     </div>
   </nav>
 
@@ -856,6 +940,52 @@
       </div>
     </div>
 
+    <!-- ══════════ HEALTH + LOGS ══════════ -->
+    <div class="section" id="sec-health">
+      <div class="scroll-content">
+
+        <div class="card">
+          <div class="card-title">Bot Health</div>
+          <div class="health-grid">
+            <div class="health-item">
+              <div class="health-label">Connection</div>
+              <div class="health-value" id="health-connection">Unknown</div>
+            </div>
+            <div class="health-item">
+              <div class="health-label">Session</div>
+              <div class="health-value mono" id="health-session">—</div>
+            </div>
+            <div class="health-item">
+              <div class="health-label">Last Ready</div>
+              <div class="health-value" id="health-ready">—</div>
+            </div>
+            <div class="health-item">
+              <div class="health-label">Last Health Check</div>
+              <div class="health-value" id="health-check">—</div>
+            </div>
+            <div class="health-item">
+              <div class="health-label">Last Init</div>
+              <div class="health-value" id="health-init">—</div>
+            </div>
+          </div>
+          <div class="health-note" id="health-note">Waiting for bot updates…</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Error Log <span id="error-count" style="color:var(--text2);font-weight:400;text-transform:none;letter-spacing:0"></span></div>
+          <div class="log-toolbar">
+            <div style="color:var(--text2);font-size:12px">Streaming live errors + recent file logs</div>
+            <div style="display:flex;gap:8px">
+              <button class="btn secondary sm" id="log-refresh-btn">🔄 Refresh</button>
+              <button class="btn secondary sm" id="log-clear-btn">Clear</button>
+            </div>
+          </div>
+          <div class="log-list" id="error-log"></div>
+        </div>
+
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -900,6 +1030,13 @@ async function apiFetch(url, method = 'GET', body) {
   return res.json();
 }
 
+function formatLogTime(value) {
+  if (!value) return ts();
+  const d = new Date(value);
+  if (!Number.isNaN(d.valueOf())) return d.toLocaleString();
+  return String(value);
+}
+
 /* ═══════════════════════════════════════════════════════════════
    Navigation
 ═══════════════════════════════════════════════════════════════ */
@@ -917,6 +1054,7 @@ navItems.forEach(item => {
     // Lazy-load data on tab switch
     if (item.dataset.section === 'chats')    loadChats();
     if (item.dataset.section === 'messages') loadMessages();
+    if (item.dataset.section === 'health')   loadErrorLogs();
   });
 });
 
@@ -929,6 +1067,9 @@ socket.on('status', ({ connected, message }) => {
   dot.className = 'status-dot' + (connected ? ' on' : '');
   txt.textContent = message || (connected ? 'Connected' : 'Disconnected');
   if (connected) document.getElementById('qr-overlay').classList.remove('show');
+  healthState.connected = Boolean(connected);
+  healthState.lastStatus = message || (connected ? 'Connected' : 'Disconnected');
+  renderHealth();
 });
 function renderAutopilotState(enabled) {
   const stateEl = document.getElementById('autopilot-state');
@@ -962,6 +1103,120 @@ document.getElementById('autopilot-btn')?.addEventListener('click', async () => 
   } finally {
     btn.disabled = false;
   }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   HEALTH + LOGS
+═══════════════════════════════════════════════════════════════ */
+const healthState = {
+  connected: null,
+  sessionId: '—',
+  lastReady: null,
+  lastHealth: null,
+  lastInit: null,
+  lastStatus: null,
+};
+
+let errorLogs = [];
+const ERROR_LIMIT = 120;
+
+function setHealthValue(id, value, isGood) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = value || '—';
+  el.classList.toggle('good', Boolean(isGood));
+  el.classList.toggle('bad', isGood === false);
+}
+
+function renderHealth() {
+  const connection = healthState.connected === null
+    ? 'Unknown'
+    : (healthState.connected ? 'Connected' : 'Disconnected');
+  setHealthValue('health-connection', connection, healthState.connected);
+  setHealthValue('health-session', healthState.sessionId, null);
+  setHealthValue('health-ready', healthState.lastReady ? formatLogTime(healthState.lastReady) : '—', null);
+  setHealthValue('health-check', healthState.lastHealth ? formatLogTime(healthState.lastHealth) : '—', null);
+  setHealthValue('health-init', healthState.lastInit ? formatLogTime(healthState.lastInit) : '—', null);
+
+  const note = document.getElementById('health-note');
+  if (note) note.textContent = healthState.lastStatus || 'Waiting for bot updates…';
+}
+
+function updateHealthFromLog(entry) {
+  const msg = String(entry?.message || '');
+  const tsVal = entry?.timestamp || entry?.ts || Date.now();
+
+  if (msg.includes('WhatsApp session:')) {
+    healthState.sessionId = msg.split('WhatsApp session:')[1]?.trim() || healthState.sessionId;
+    healthState.lastReady = tsVal;
+  }
+  if (msg.includes('WhatsApp agent READY')) {
+    healthState.lastReady = tsVal;
+  }
+  if (msg.includes('WhatsApp health check:')) {
+    healthState.lastHealth = tsVal;
+  }
+  if (msg.includes('Initializing WhatsApp client')) {
+    healthState.lastInit = tsVal;
+  }
+
+  renderHealth();
+}
+
+function renderErrorLogs() {
+  const container = document.getElementById('error-log');
+  const countEl = document.getElementById('error-count');
+  if (!container) return;
+  if (countEl) countEl.textContent = `(${errorLogs.length})`;
+
+  if (!errorLogs.length) {
+    container.innerHTML = '<div class="msg-empty">No errors yet.</div>';
+    return;
+  }
+
+  container.innerHTML = errorLogs.map(entry => {
+    const time = formatLogTime(entry.timestamp || entry.ts || Date.now());
+    const message = entry.message || 'Error';
+    const stack = entry.stack && entry.stack !== message ? entry.stack : '';
+    return `
+      <div class="log-entry">
+        <div class="log-top">
+          <span>${escHtml(time)}</span>
+          <span>${escHtml(entry.level || 'error')}</span>
+        </div>
+        <div class="log-msg">${escHtml(message)}</div>
+        ${stack ? `<div class="log-stack">${escHtml(stack)}</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function addErrorLog(entry) {
+  errorLogs.unshift(entry);
+  errorLogs = errorLogs.slice(0, ERROR_LIMIT);
+  renderErrorLogs();
+}
+
+async function loadErrorLogs() {
+  try {
+    const res = await apiFetch('/api/logs?level=error&limit=200');
+    errorLogs = (res.entries || []).slice(-ERROR_LIMIT).reverse();
+    renderErrorLogs();
+  } catch (e) {
+    const container = document.getElementById('error-log');
+    if (container) container.innerHTML = `<div class="msg-empty">Error: ${escHtml(e.message)}</div>`;
+  }
+}
+
+document.getElementById('log-refresh-btn')?.addEventListener('click', loadErrorLogs);
+document.getElementById('log-clear-btn')?.addEventListener('click', () => {
+  errorLogs = [];
+  renderErrorLogs();
+});
+
+socket.on('log', entry => {
+  if (!entry) return;
+  updateHealthFromLog(entry);
+  if (entry.level === 'error') addErrorLog(entry);
 });
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1447,6 +1702,8 @@ apiFetch('/api/autopilot')
   .then(state => renderAutopilotState(Boolean(state?.enabled)))
   .catch(() => renderAutopilotState(false));
 loadChats();
+renderHealth();
+loadErrorLogs();
 </script>
 </body>
 </html>

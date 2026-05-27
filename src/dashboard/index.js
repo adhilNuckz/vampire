@@ -3,8 +3,7 @@
  * ─────────────────────────────────────────────────────────────
  * Express + Socket.IO web dashboard.
  *
- * Features: Contacts, Chats, Messages, Schedule + Ping
- * Removed:  AI commands, Email, Server Tasks, API Health, Logs
+ * Features: Contacts, Chats, Messages, Schedule + Ping, Health + Logs
  * ─────────────────────────────────────────────────────────────
  */
 
@@ -12,6 +11,7 @@
 
 const path       = require('path');
 const express    = require('express');
+const fs         = require('fs-extra');
 const http       = require('http');
 const { Server } = require('socket.io');
 const cors       = require('cors');
@@ -26,6 +26,7 @@ const app    = express();
 const server = http.createServer(app);
 const io     = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST', 'DELETE'] } });
 const PORT   = parseInt(process.env.DASHBOARD_PORT || '5555', 10);
+const LOG_DIR = process.env.LOG_DIR || './logs';
 
 app.use(cors());
 app.use(express.json());
@@ -37,6 +38,7 @@ logBus.on('status',               status => io.emit('status',               stat
 logBus.on('qr',                   qr     => io.emit('qr',                   qr));
 logBus.on('chat_message',         msg    => io.emit('new_chat_message',      msg));
 logBus.on('chat_message_revoked', data   => io.emit('chat_message_revoked',  data));
+logBus.on('log',                  entry  => io.emit('log',                  entry));
 
 io.on('connection', socket => {
   logger.info(`Dashboard client connected: ${socket.id}`);
@@ -49,6 +51,33 @@ io.on('connection', socket => {
 app.get('/api/status', (_, res) =>
   res.json({ status: 'ok', uptime: process.uptime(), ts: Date.now() })
 );
+
+// Recent logs (JSON lines from Winston files)
+app.get('/api/logs', async (req, res) => {
+  const level = String(req.query.level || 'error').toLowerCase();
+  const limit = Math.min(parseInt(req.query.limit || '200', 10), 1000);
+  const file  = level === 'error' ? 'error.log' : 'combined.log';
+  const filePath = path.join(LOG_DIR, file);
+
+  try {
+    if (!await fs.pathExists(filePath)) return res.json({ entries: [] });
+    const raw = await fs.readFile(filePath, 'utf8');
+    const lines = raw.split('\n').filter(Boolean);
+    const tail = lines.slice(-limit);
+    const entries = [];
+
+    for (const line of tail) {
+      try {
+        const entry = JSON.parse(line);
+        if (level === 'all' || entry.level === level) entries.push(entry);
+      } catch (_) { /* ignore parse errors */ }
+    }
+
+    res.json({ entries });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // All chat messages (including deleted)
 app.get('/api/chats', async (req, res) => {

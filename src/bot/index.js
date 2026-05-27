@@ -147,6 +147,7 @@ if (browserPath && !resolvedBrowserPath) {
 
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
+  restartOnAuthFail: true,
   puppeteer: {
     headless,
     ...(resolvedBrowserPath ? { executablePath: resolvedBrowserPath } : {}),
@@ -166,6 +167,45 @@ const client = new Client({
     ]
   }
 });
+
+// ── init/reconnect with backoff ──────────────────────────────────────────────
+let initializing = false;
+let retryTimer = null;
+let retryDelayMs = 5_000;
+const MAX_RETRY_DELAY_MS = 120_000;
+
+function scheduleInitialize(reason) {
+  if (retryTimer) return;
+  const delay = retryDelayMs;
+  const reasonSuffix = reason ? ` (${reason})` : '';
+  logger.warn(`Scheduling WhatsApp re-init in ${Math.round(delay / 1000)}s${reasonSuffix}.`);
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    initializeClient(reason);
+  }, delay);
+  retryDelayMs = Math.min(retryDelayMs * 2, MAX_RETRY_DELAY_MS);
+}
+
+async function initializeClient(reason) {
+  if (initializing) return;
+  initializing = true;
+  try {
+    if (reason) logger.info(`Initializing WhatsApp client (${reason})...`);
+    await client.initialize();
+    retryDelayMs = 5_000;
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+  } catch (err) {
+    const msg = err?.message || String(err);
+    logger.error(`Client initialize failed: ${msg}`);
+    try { await client.destroy(); } catch (_) {}
+    scheduleInitialize('init failed');
+  } finally {
+    initializing = false;
+  }
+}
 
 // ── Capture all incoming messages for view-once/ephemeral media ─────────────
 client.on('message', async message => {
@@ -191,6 +231,12 @@ client.on('ready', () => {
   logger.info(`WhatsApp agent READY 🚀  (chat: "${AGENT_CHAT_NAME}", prefix: "${CMD_PREFIX}")`);
   logBus.emit('status', { connected: true, message: 'Ready' });
   setClient(client); // share with dashboard scheduler
+  const sessionId = client.info?.wid?._serialized || client.info?.wid?.user || 'unknown';
+  logger.info(`WhatsApp session: ${sessionId}`);
+  setTimeout(() => {
+    const confirmId = client.info?.wid?._serialized || client.info?.wid?.user || 'unknown';
+    logger.info(`WhatsApp health check: still ready after 30s (session ${confirmId}).`);
+  }, 30_000);
 });
 
 client.on('auth_failure', msg => {
@@ -201,7 +247,7 @@ client.on('auth_failure', msg => {
 client.on('disconnected', reason => {
   logger.warn(`Disconnected: ${reason}`);
   logBus.emit('status', { connected: false, message: `Disconnected: ${reason}` });
-  setTimeout(() => client.initialize(), 10_000);
+  scheduleInitialize(`disconnected: ${reason}`);
 });
 
 // ── Message revocation (anti-delete) handler ────────────────────────
@@ -263,7 +309,7 @@ client.on('message_create', async message => {
   logger.info('Starting WhatsApp agent…');
   const autoPilot = getAutoPilotState();
   logger.info(`Auto Pilot is ${autoPilot.enabled ? 'enabled' : 'disabled'}`);
-  client.initialize();
+  initializeClient('startup');
 })().catch(err => {
   logger.error(`Fatal bot startup: ${err.message}\n${err.stack}`);
   // don't process.exit here — dashboard may be running in same process
