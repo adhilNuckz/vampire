@@ -97,6 +97,14 @@ test('GET / serves the dashboard UI', async () => {
   assert.match(html, /chat_message_revoked/, 'UI must handle the revoked event');
 });
 
+test('the UI renders media rather than a text placeholder', async () => {
+  const html = await (await fetch(`${BASE}/`)).text();
+  assert.match(html, /function mediaHtml/, 'attachments need a renderer');
+  assert.match(html, /<img class="bubble-media"/, 'chat bubbles must show images');
+  assert.match(html, /msg-media/, 'the messages list must show images too');
+  assert.match(html, /not saved/, 'unsaved media should say so, not show nothing');
+});
+
 test('capturing a message pushes new_chat_message to browsers', async () => {
   const msgId = `false_${SENDER}_LIVE001`;
   const waiting = once(socket, 'new_chat_message');

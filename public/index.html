@@ -491,6 +491,16 @@
       background: rgba(248,81,73,0.12) !important;
       border: 1px solid rgba(248,81,73,0.25);
     }
+    /* Deleted media stays fully legible — seeing what was removed is the whole
+       point — and is marked with a red outline plus the 🗑️ badge instead of
+       being dimmed into uselessness. */
+    .bubble-media {
+      display: block; max-width: 100%; max-height: 220px;
+      border-radius: 6px;
+    }
+    .bubble.is-deleted .bubble-media {
+      border: 2px solid rgba(248,81,73,0.55);
+    }
     .bubble-sender {
       font-size: 11px;
       font-weight: 600;
@@ -562,6 +572,14 @@
       border-color: rgba(248,81,73,0.3);
       background: rgba(248,81,73,0.05);
     }
+    .msg-media {
+      display: block; max-width: 100%; max-height: 200px;
+      border-radius: 6px; margin-top: 4px;
+    }
+    .msg-entry.deleted .msg-media {
+      border: 2px solid rgba(248,81,73,0.55);
+    }
+    .msg-caption { margin-top: 4px; }
     .msg-avatar-sm {
       width: 34px; height: 34px; border-radius: 50%;
       background: linear-gradient(135deg, var(--accent2), var(--accent));
@@ -1001,6 +1019,9 @@
 ═══════════════════════════════════════════════════════════════ */
 const socket = io();
 
+/** Message types that carry an attachment rather than (only) text. */
+const MEDIA_TYPES = ['image', 'video', 'audio', 'ptt', 'document', 'sticker'];
+
 function escHtml(s) {
   return String(s || '')
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
@@ -1345,13 +1366,21 @@ function renderChatMessages() {
 
     let content = '';
     if (m.mediaUrl) {
-      if (m.type === 'image') {
-        content = `<a href="${escHtml(m.mediaUrl)}" target="_blank"><img src="${escHtml(m.mediaUrl)}" style="max-height:180px;max-width:100%;border-radius:6px;${m.isDeleted?'filter:grayscale(1);opacity:.6':''}" /></a>`;
+      const url = escHtml(m.mediaUrl);
+      if (m.type === 'image' || m.type === 'sticker') {
+        content = `<a href="${url}" target="_blank"><img class="bubble-media" src="${url}" alt="image" /></a>`;
+      } else if (m.type === 'video') {
+        content = `<video class="bubble-media" controls preload="metadata" src="${url}"></video>`;
       } else if (m.type === 'audio' || m.type === 'ptt') {
-        content = `<audio controls src="${escHtml(m.mediaUrl)}" style="height:34px;width:100%;${m.isDeleted?'opacity:.5':''}"></audio>`;
+        content = `<audio controls src="${url}" style="height:34px;width:100%"></audio>`;
       } else {
-        content = `<a href="${escHtml(m.mediaUrl)}" target="_blank" style="color:var(--blue)">[${escHtml(m.type)}]</a>`;
+        content = `<a href="${url}" target="_blank" style="color:var(--blue)">[${escHtml(m.type)}]</a>`;
       }
+      // A caption rides along with the media rather than replacing it.
+      if (m.body) content += `<div class="msg-caption ${bodyClass}">${escHtml(m.body)}</div>`;
+    } else if (MEDIA_TYPES.includes(m.type)) {
+      // Media existed but could not be saved — say so instead of showing nothing.
+      content = `<span class="${bodyClass}">[${escHtml(m.type)} — not saved]</span>`;
     } else {
       content = `<span class="${bodyClass}">${escHtml(m.body || '')}</span>`;
     }
@@ -1514,10 +1543,32 @@ function safeMsgId(msgId) {
   return String(msgId || '').replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+/** Render an attachment by type, or '' when there is nothing saved to show. */
+function mediaHtml(m) {
+  if (!m.mediaUrl) return '';
+  const url = escHtml(m.mediaUrl);
+  if (m.type === 'image' || m.type === 'sticker') {
+    return `<a href="${url}" target="_blank"><img class="msg-media" src="${url}" alt="image" /></a>`;
+  }
+  if (m.type === 'video') {
+    return `<video class="msg-media" controls preload="metadata" src="${url}"></video>`;
+  }
+  if (m.type === 'audio' || m.type === 'ptt') {
+    return `<audio controls src="${url}" style="height:32px;width:240px"></audio>`;
+  }
+  return `<a href="${url}" target="_blank" style="color:var(--blue)">[${escHtml(m.type)}]</a>`;
+}
+
 function buildMsgEntry(m) {
-  const bodyHtml = m.isDeleted
-    ? `<span class="msg-text deleted-text">${escHtml(m.body || '(no content)')}</span>`
-    : `<span class="msg-text">${escHtml(m.body || (m.mediaUrl ? `[${m.type || 'media'}]` : ''))}</span>`;
+  const media    = mediaHtml(m);
+  const textCls  = `msg-text${m.isDeleted ? ' deleted-text' : ''}`;
+  const fallback = m.isDeleted ? '(no content)'
+                 : MEDIA_TYPES.includes(m.type) ? `[${escHtml(m.type)} — not saved]`
+                 : '';
+
+  const bodyHtml = media
+    ? media + (m.body ? `<div class="${textCls} msg-caption">${escHtml(m.body)}</div>` : '')
+    : `<span class="${textCls}">${escHtml(m.body || fallback)}</span>`;
 
   const deletedBadge = m.isDeleted
     ? `<span class="deleted-label">🗑️ Deleted</span>`

@@ -83,6 +83,29 @@ async function downloadMedia(message) {
 const MEDIA_DIR = path.join(__dirname, '../../public/media');
 fs.ensureDirSync(MEDIA_DIR);
 
+/**
+ * Restore `message.id._serialized` before handing the message to the library.
+ *
+ * whatsapp-web.js passes `this.id._serialized` into the page for downloadMedia(),
+ * reply(), delete() and friends. On the current WhatsApp Web build the id is
+ * rebuilt with Object.assign(), which drops that computed getter, so the library
+ * looks up a message whose id is `undefined` and the call dies with a mangled
+ * page error — which is exactly why images arrived as bare placeholders.
+ *
+ * `message.id` is a plain mutable object at that point, so the field can simply
+ * be put back.
+ *
+ * @returns {string} the id, or '' if none could be determined
+ */
+function ensureMessageId(message) {
+  const id = messageIdOf(message);
+  if (id && message.id && typeof message.id === 'object' && !message.id._serialized) {
+    try { message.id._serialized = id; }
+    catch (_) { /* frozen object — nothing we can do from here */ }
+  }
+  return id;
+}
+
 /** Download a message's media into public/media; returns its public URL. */
 async function saveMedia(message) {
   if (!message?.hasMedia) return null;
@@ -94,7 +117,9 @@ async function saveMedia(message) {
     await fs.writeFile(path.join(MEDIA_DIR, fname), Buffer.from(media.data, 'base64'));
     return `/media/${fname}`;
   } catch (e) {
-    logger.warn(`Chat media capture: ${e.message}`);
+    // The page-side errors here arrive heavily mangled (often just "r"), so log
+    // whatever identity the error does carry rather than a bare message.
+    logger.warn(`Chat media capture failed [${e?.name || 'Error'}]: ${e?.message || e}`);
     return null;
   }
 }
@@ -105,6 +130,9 @@ let warnedMissingId = false;
 
 async function captureMessage(message) {
   if (isIgnoredChat(message)) return null;
+
+  // Must happen before saveMedia(): downloadMedia() needs a usable id.
+  const msgId = ensureMessageId(message);
 
   const chatJid        = message.fromMe ? message.to : message.from;
   const conversationId = parseSenderId(chatJid);
@@ -118,9 +146,6 @@ async function captureMessage(message) {
   // Save any media if present (including view-once, ephemeral, etc.)
   const mediaUrl = await saveMedia(message);
 
-  // messageIdOf(), not message.id._serialized — see revokeResolver.js. Without
-  // this the id can come back undefined and every message stores an empty one.
-  const msgId = messageIdOf(message);
   if (!msgId && !warnedMissingId) {
     warnedMissingId = true;
     logger.warn('Could not determine a message id — de-duplication and deleted-message tracking will not work for these messages.');
@@ -348,6 +373,7 @@ async function handleRevoke(after, before, source, recover) {
 
   // Never captured it — rebuild from the snapshot that still has the content.
   const original = before || after;
+  ensureMessageId(original);   // same id repair, so its media can still be pulled
   const info     = describeMessage(original);
   if (!info || (!info.body && !info.hasMedia)) {
     logger.warn(`Revoke (${source}) for unknown message with no recoverable content: ${ids[0]}`);
