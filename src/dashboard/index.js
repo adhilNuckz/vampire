@@ -16,6 +16,7 @@ const http       = require('http');
 const { Server } = require('socket.io');
 const cors       = require('cors');
 const QRCode     = require('qrcode');
+const { createAuth } = require('./auth');
 const { logger, logBus }          = require('../utils/logger');
 const { sendWhatsApp, getClient } = require('../services/whatsappClient');
 const { getMessages: getChatMessages } = require('../services/chatStore');
@@ -29,6 +30,25 @@ const io     = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'
 const PORT   = parseInt(process.env.DASHBOARD_PORT || '5050', 10);
 const HOST   = process.env.DASHBOARD_HOST || '0.0.0.0';
 const LOG_DIR = process.env.LOG_DIR || './logs';
+
+// ── Auth ──────────────────────────────────────────────────────
+// Registered before every route and before the static handler, so the chat
+// archive and its media are protected too — not just the API.
+const auth = createAuth({
+  user: process.env.DASHBOARD_USER,
+  pass: process.env.DASHBOARD_PASSWORD,
+});
+
+if (auth.enabled) {
+  logger.info(`Dashboard authentication enabled (user "${process.env.DASHBOARD_USER}").`);
+} else {
+  logger.warn(
+    'Dashboard is NOT password protected — anyone who can reach this port can read ' +
+    'every archived chat and send messages. Set DASHBOARD_USER and DASHBOARD_PASSWORD in .env.'
+  );
+}
+
+app.use(auth.middleware);
 
 app.use(cors());
 app.use(express.json());
@@ -65,6 +85,9 @@ logBus.on('qr', async data => {
 logBus.on('chat_message',         msg    => io.emit('new_chat_message',      msg));
 logBus.on('chat_message_revoked', data   => io.emit('chat_message_revoked',  data));
 logBus.on('log',                  entry  => io.emit('log',                  entry));
+
+// The WebSocket upgrade never reaches Express, so it needs its own gate.
+io.use(auth.socketMiddleware);
 
 io.on('connection', socket => {
   logger.info(`Dashboard client connected: ${socket.id}`);

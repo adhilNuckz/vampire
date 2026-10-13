@@ -26,6 +26,16 @@ const PORT = 5187;
 process.env.DASHBOARD_PORT = String(PORT);
 process.env.LOG_DIR        = path.join(sandbox, 'logs');
 
+// Run the whole live suite with the password gate ON — that is how it is
+// deployed, so the tests should exercise the real configuration.
+const AUTH_USER = 'live-admin';
+const AUTH_PASS = 'live-test-password';
+process.env.DASHBOARD_USER     = AUTH_USER;
+process.env.DASHBOARD_PASSWORD = AUTH_PASS;
+
+const BASIC       = 'Basic ' + Buffer.from(`${AUTH_USER}:${AUTH_PASS}`).toString('base64');
+const authHeaders = { Authorization: BASIC };
+
 const { logger, logBus } = require('../src/utils/logger');
 const { server }         = require('../src/dashboard/index.js');
 const chatStore          = require('../src/services/chatStore');
@@ -61,7 +71,7 @@ function noEvent(socket, event, ms = 700) {
  */
 function connectClient(register) {
   return new Promise((resolve, reject) => {
-    const socket = ioClient(BASE, { transports: ['websocket'], reconnection: false });
+    const socket = ioClient(BASE, { transports: ['websocket'], reconnection: false, extraHeaders: authHeaders });
     const pending = register?.(socket);
     socket.once('connect', () => resolve({ socket, pending }));
     socket.once('connect_error', reject);
@@ -72,7 +82,7 @@ let socket;
 
 test.before(async () => {
   if (!server.listening) await new Promise(r => server.once('listening', r));
-  socket = ioClient(BASE, { transports: ['websocket'], reconnection: false });
+  socket = ioClient(BASE, { transports: ['websocket'], reconnection: false, extraHeaders: authHeaders });
   await once(socket, 'connect');
 });
 
@@ -83,14 +93,61 @@ test.after(async () => {
 });
 
 test('GET /api/status reports healthy', async () => {
-  const res  = await fetch(`${BASE}/api/status`);
+  const res  = await fetch(`${BASE}/api/status`, { headers: authHeaders });
   const body = await res.json();
   assert.strictEqual(res.status, 200);
   assert.strictEqual(body.status, 'ok');
 });
 
+// ── the password gate ────────────────────────────────────────────────────────
+// These are the tests that matter: everything above proves the dashboard works,
+// these prove it is not open to the internet.
+
+test('anonymous requests are refused before reaching any route', async () => {
+  for (const path of ['/', '/api/status', '/api/chats', '/api/autopilot']) {
+    const res = await fetch(`${BASE}${path}`);
+    assert.strictEqual(res.status, 401, `${path} must require a password`);
+  }
+});
+
+test('the refusal advertises the realm so browsers prompt', async () => {
+  const res = await fetch(`${BASE}/`);
+  assert.match(res.headers.get('www-authenticate') || '', /^Basic realm="/);
+});
+
+test('the chat archive and its media are behind the gate', async () => {
+  // /media holds the photos of every chat — it is static, so it is easy to
+  // leave unprotected by registering auth after express.static().
+  const res = await fetch(`${BASE}/api/chats`);
+  assert.strictEqual(res.status, 401);
+
+  const media = await fetch(`${BASE}/media/.gitkeep`);
+  assert.strictEqual(media.status, 401, 'static media must not be public');
+});
+
+test('wrong credentials are refused', async () => {
+  const bad = 'Basic ' + Buffer.from(`${AUTH_USER}:wrong-password`).toString('base64');
+  const res = await fetch(`${BASE}/api/status`, { headers: { Authorization: bad } });
+  assert.strictEqual(res.status, 401);
+});
+
+test('an anonymous socket connection is refused', async () => {
+  // The WebSocket upgrade skips Express, so the io.use() gate is the only
+  // thing protecting live chat traffic.
+  const anon = ioClient(BASE, { transports: ['websocket'], reconnection: false, timeout: 4000 });
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('anonymous socket was NOT refused')), 4000);
+      anon.once('connect', () => { clearTimeout(timer); reject(new Error('anonymous socket connected')); });
+      anon.once('connect_error', () => { clearTimeout(timer); resolve(); });
+    });
+  } finally {
+    anon.close();
+  }
+});
+
 test('GET / serves the dashboard UI', async () => {
-  const res  = await fetch(`${BASE}/`);
+  const res  = await fetch(`${BASE}/`, { headers: authHeaders });
   const html = await res.text();
   assert.strictEqual(res.status, 200);
   assert.match(html, /WhatsApp Dashboard/);
@@ -98,7 +155,7 @@ test('GET / serves the dashboard UI', async () => {
 });
 
 test('the UI renders media rather than a text placeholder', async () => {
-  const html = await (await fetch(`${BASE}/`)).text();
+  const html = await (await fetch(`${BASE}/`, { headers: authHeaders })).text();
   assert.match(html, /function mediaHtml/, 'attachments need a renderer');
   assert.match(html, /<img class="bubble-media"/, 'chat bubbles must show images');
   assert.match(html, /msg-media/, 'the messages list must show images too');
@@ -169,7 +226,7 @@ test('the full revoke handler recovers a message that was never captured', async
   assert.strictEqual(received.body, 'deleted before we ever saw it');
 
   // …and it is readable back out through the dashboard's own API.
-  const res  = await fetch(`${BASE}/api/chats?limit=100`);
+  const res  = await fetch(`${BASE}/api/chats?limit=100`, { headers: authHeaders });
   const body = await res.json();
   const found = body.messages.find(m => m.msgId === originalId);
   assert.ok(found, 'recovered deletion must appear in /api/chats');
@@ -221,7 +278,7 @@ test('a re-delivered message does not produce a duplicate in /api/chats', async 
   for (let i = 0; i < 3; i++) {
     await chatStore.addMessage({ msgId, sender: 'Zoe', senderId: '94783811114', body: 'once only', type: 'chat' });
   }
-  const res  = await fetch(`${BASE}/api/chats?limit=500`);
+  const res  = await fetch(`${BASE}/api/chats?limit=500`, { headers: authHeaders });
   const body = await res.json();
   assert.strictEqual(body.messages.filter(m => m.msgId === msgId).length, 1);
 });

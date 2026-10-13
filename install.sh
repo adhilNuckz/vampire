@@ -245,11 +245,24 @@ set_env BROWSER_PATH   "$CHROME_PATH"
 set_env DASHBOARD_PORT "$VAMPIRE_PORT"
 set_env DASHBOARD_HOST "0.0.0.0"
 
-# A fresh .env still carries the example secret — mint a real one.
+# A fresh .env still carries the example secret — mint a real one, plus a
+# generated dashboard password so the archive is never left open by default.
 if [ "$FRESH_ENV" -eq 1 ]; then
   SECRET="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   set_env DASHBOARD_SECRET "$SECRET"
+
+  PASSWORD="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-20)"
+  set_env DASHBOARD_USER     "admin"
+  set_env DASHBOARD_PASSWORD "$PASSWORD"
 fi
+
+# Read back whatever is in effect, whether freshly generated or pre-existing,
+# so the health check and the closing summary both work on a re-run.
+env_value() { grep -E "^[[:space:]]*$1=" "$ENV_FILE" | tail -1 | cut -d= -f2- ; }
+DASH_USER="$(env_value DASHBOARD_USER)"
+DASH_PASS="$(env_value DASHBOARD_PASSWORD)"
+DASH_AUTH_ON=0
+[ -n "$DASH_USER" ] && [ -n "$DASH_PASS" ] && DASH_AUTH_ON=1
 
 # ── optional first-run configuration ─────────────────────────────────────────
 if [ "$FRESH_ENV" -eq 1 ]; then
@@ -308,7 +321,16 @@ success "PM2 will restart the bot on reboot"
 info "Waiting for the dashboard to come up…"
 HEALTHY=0
 for _ in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:${VAMPIRE_PORT}/api/status" >/dev/null 2>&1; then HEALTHY=1; break; fi
+  # 401 means the server is up and the password gate is working — that is a
+  # healthy install, not a failure. Only a connection error counts against us.
+  if [ "$DASH_AUTH_ON" -eq 1 ]; then
+    CODE="$(curl -s -o /dev/null -w '%{http_code}' -u "${DASH_USER}:${DASH_PASS}" \
+              --max-time 5 "http://127.0.0.1:${VAMPIRE_PORT}/api/status" 2>/dev/null || echo 000)"
+  else
+    CODE="$(curl -s -o /dev/null -w '%{http_code}' \
+              --max-time 5 "http://127.0.0.1:${VAMPIRE_PORT}/api/status" 2>/dev/null || echo 000)"
+  fi
+  if [ "$CODE" = "200" ] || [ "$CODE" = "401" ]; then HEALTHY=1; break; fi
   sleep 1
 done
 
@@ -329,6 +351,18 @@ echo
 echo -e "   ${BOLD}Open in your browser:${NC}"
 echo -e "      ${CYAN}${BOLD}http://${SERVER_IP}:${VAMPIRE_PORT}${NC}"
 echo
+if [ "$DASH_AUTH_ON" -eq 1 ]; then
+  echo -e "   ${BOLD}Login (save this — it is also in .env):${NC}"
+  echo -e "      Username: ${CYAN}${BOLD}${DASH_USER}${NC}"
+  echo -e "      Password: ${CYAN}${BOLD}${DASH_PASS}${NC}"
+  echo
+else
+  echo -e "   ${YELLOW}${BOLD}No dashboard password is set — the archive is open to anyone${NC}"
+  echo -e "   ${YELLOW}who can reach this port. Add to .env and restart:${NC}"
+  echo -e "      ${CYAN}DASHBOARD_USER=admin${NC}"
+  echo -e "      ${CYAN}DASHBOARD_PASSWORD=<something long>${NC}"
+  echo
+fi
 if [ "$HEALTHY" -ne 1 ]; then
   echo -e "   ${YELLOW}Not loading? Check the logs (the bot may still be starting):${NC}"
   echo -e "      ${CYAN}pm2 logs ${PM2_NAME} --lines 50${NC}"
