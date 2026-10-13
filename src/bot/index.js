@@ -362,6 +362,12 @@ async function handleRevoke(after, before, source, recover) {
 
   // Never captured it — rebuild from the snapshot that still has the content.
   const original = before || after;
+
+  // The same filter as capture: otherwise a deleted Status post or group
+  // message, which we never archive, gets recreated here purely because it was
+  // deleted. That is how status@broadcast rows appeared in the archive.
+  if (isIgnoredChat(original)) return;
+
   ensureMessageId(original);   // same id repair, so its media can still be pulled
   const info     = describeMessage(original);
   if (!info || (!info.body && !info.hasMedia)) {
