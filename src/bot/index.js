@@ -4,9 +4,9 @@
  * WhatsApp Web bot — entry point.
  *
  * • QR code login (session persisted in /.wwebjs_auth)
- * • Listens for messages from authorised numbers
- * • Routes text → processor, voice → ffmpeg → Gemini STT → processor
- * • Replies in the same WhatsApp chat
+ * • Captures every 1:1 chat (text + media) into the archive
+ * • Keeps deleted messages, with their original content
+ * • Auto Pilot replies while enabled, in the same chat
  * • Forwards real-time events to the dashboard via logBus
  * ─────────────────────────────────────────────────────────────
  */
@@ -14,10 +14,8 @@
 'use strict';
 
 const path    = require('path');
-const os      = require('os');
 const fs      = require('fs-extra');
 const qrcode  = require('qrcode-terminal');
-const ffmpeg  = require('fluent-ffmpeg');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { logger, logBus }    = require('../utils/logger');
 const { generateAutoReply } = require('../services/processor');
@@ -25,6 +23,7 @@ const { setClient }         = require('../services/whatsappClient');
 const { addMessage: addChatMessage, revokeMessage, markDeleted } = require('../services/chatStore');
 const { resolveRevokeIds, describeMessage, messageIdOf } = require('../services/revokeResolver');
 const { isIgnoredChat } = require('../services/messageFilter');
+const { downloadMedia } = require('../services/mediaDownloader');
 const { sessionDir, killOrphanBrowsers, clearStaleProfileLock } = require('../utils/browserLock');
 const { getAutoPilotState } = require('../services/autopilot');
 require('dotenv').config();
@@ -38,9 +37,6 @@ const ADMIN_NUMBERS   = (process.env.ADMIN_NUMBERS || '')
   .split(',').map(n => n.trim().replace(/\D/g, '')).filter(Boolean);
 const AGENT_CHAT_NAME = process.env.AGENT_CHAT_NAME || 'Agent';
 const CMD_PREFIX      = process.env.COMMAND_PREFIX  || '!';
-const AUDIO_TMP_DIR   = path.join(os.tmpdir(), 'wa_agent_audio');
-
-fs.ensureDirSync(AUDIO_TMP_DIR);
 
 // ── rate limiter (10 req / min per sender) ────────────────────────────────────
 const rateMap    = new Map();
@@ -61,23 +57,10 @@ function isRateLimited(id) {
 const parseSenderId  = from  => (from || '').replace(/@.+/, '');
 const isAuthorised   = id    => !ADMIN_NUMBERS.length || ADMIN_NUMBERS.includes(id);
 
-function convertToWav(inputPath) {
-  const outputPath = inputPath.replace(/\.\w+$/, '.wav');
-  return new Promise((resolve, reject) =>
-    ffmpeg(inputPath)
-      .audioChannels(1).audioFrequency(16000).format('wav')
-      .on('error', reject).on('end', () => resolve(outputPath))
-      .save(outputPath)
-  );
-}
-
-async function downloadMedia(message) {
-  const media    = await message.downloadMedia();
-  const ext      = media.mimetype.split('/')[1].split(';')[0];
-  const filePath = path.join(AUDIO_TMP_DIR, `voice_${Date.now()}.${ext}`);
-  await fs.writeFile(filePath, Buffer.from(media.data, 'base64'));
-  return { localPath: filePath, mimeType: media.mimetype };
-}
+// NOTE: the voice-note helpers (ffmpeg → WAV, and a local audio writer) were
+// removed here. They belonged to a speech-to-text path that no longer exists —
+// processor.transcribeAudio() returns '' and nothing calls it — and the local
+// writer shadowed the media downloader that actually saves attachments.
 
 // ── chat history capture ──────────────────────────────────────────────────────
 const MEDIA_DIR = path.join(__dirname, '../../public/media');
@@ -106,19 +89,25 @@ function ensureMessageId(message) {
   return id;
 }
 
-/** Download a message's media into public/media; returns its public URL. */
+/**
+ * Download a message's media into public/media; returns its public URL.
+ *
+ * Uses our own downloader rather than message.downloadMedia(), which omits the
+ * mimetype that current WhatsApp Web builds require — see mediaDownloader.js.
+ */
 async function saveMedia(message) {
   if (!message?.hasMedia) return null;
   try {
-    const media = await message.downloadMedia();
+    const media = await downloadMedia(client, message);
     if (!media || !media.data) return null;
-    const ext   = (media.mimetype || 'application/octet-stream').split('/')[1].split(';')[0];
-    const fname = `msg_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+
+    const fname = `msg_${Date.now()}_${Math.random().toString(36).slice(2)}.${media.ext}`;
     await fs.writeFile(path.join(MEDIA_DIR, fname), Buffer.from(media.data, 'base64'));
+    logger.info(`Saved ${message.type} media → ${fname} (${Math.round((media.data.length * 3) / 4 / 1024)} KB)`);
     return `/media/${fname}`;
   } catch (e) {
-    // The page-side errors here arrive heavily mangled (often just "r"), so log
-    // whatever identity the error does carry rather than a bare message.
+    // The page-side errors here arrive heavily mangled (sometimes just "r"), so
+    // log whatever identity the error does carry rather than a bare message.
     logger.warn(`Chat media capture failed [${e?.name || 'Error'}]: ${e?.message || e}`);
     return null;
   }
