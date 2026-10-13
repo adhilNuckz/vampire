@@ -22,7 +22,9 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const { logger, logBus }    = require('../utils/logger');
 const { generateAutoReply } = require('../services/processor');
 const { setClient }         = require('../services/whatsappClient');
-const { addMessage: addChatMessage } = require('../services/chatStore');
+const { addMessage: addChatMessage, revokeMessage, markDeleted } = require('../services/chatStore');
+const { resolveRevokeIds, describeMessage } = require('../services/revokeResolver');
+const { sessionDir, killOrphanBrowsers, clearStaleProfileLock } = require('../utils/browserLock');
 const { getAutoPilotState } = require('../services/autopilot');
 require('dotenv').config();
 
@@ -80,52 +82,63 @@ async function downloadMedia(message) {
 const MEDIA_DIR = path.join(__dirname, '../../public/media');
 fs.ensureDirSync(MEDIA_DIR);
 
-async function captureMessage(message) {
+/** Download a message's media into public/media; returns its public URL. */
+async function saveMedia(message) {
+  if (!message?.hasMedia) return null;
+  try {
+    const media = await message.downloadMedia();
+    if (!media || !media.data) return null;
+    const ext   = (media.mimetype || 'application/octet-stream').split('/')[1].split(';')[0];
+    const fname = `msg_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+    await fs.writeFile(path.join(MEDIA_DIR, fname), Buffer.from(media.data, 'base64'));
+    return `/media/${fname}`;
+  } catch (e) {
+    logger.warn(`Chat media capture: ${e.message}`);
+    return null;
+  }
+}
+
+/** Channels/newsletters and groups are not part of the dashboard history. */
+function isIgnoredChat(message) {
   const chatJid = message.fromMe ? message.to : message.from;
-  if (
+  return Boolean(
     message.from?.endsWith('@newsletter') ||
     message.type === 'newsletter' ||
-    message.author === null && message.from?.endsWith('@broadcast') ||
+    (message.author === null && message.from?.endsWith('@broadcast')) ||
     chatJid?.endsWith('@g.us')
-  ) return;
+  );
+}
+
+async function captureMessage(message) {
+  if (isIgnoredChat(message)) return null;
+
+  const chatJid        = message.fromMe ? message.to : message.from;
   const conversationId = parseSenderId(chatJid);
 
-  let contact;
-  try { contact = await message.getContact(); } catch (_) { contact = {}; }
+  let contact = {};
+  if (!message.fromMe) {
+    try { contact = await message.getContact(); } catch (_) { contact = {}; }
+  }
   const name = contact.pushname || contact.name || conversationId;
-  const ts = message.timestamp ? message.timestamp * 1000 : Date.now();
-  const type = message.type;
-  let body = message.body || '';
-  let mediaUrl = null;
 
   // Save any media if present (including view-once, ephemeral, etc.)
-  if (message.hasMedia) {
-    try {
-      const media = await message.downloadMedia();
-      if (media) {
-        const ext   = (media.mimetype || 'application/octet-stream').split('/')[1].split(';')[0];
-        const fname = `msg_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-        const fpath = path.join(MEDIA_DIR, fname);
-        await fs.writeFile(fpath, Buffer.from(media.data, 'base64'));
-        mediaUrl = `/media/${fname}`;
-      }
-    } catch (e) {
-      logger.warn(`Chat media capture: ${e.message}`);
-    }
-  }
+  const mediaUrl = await saveMedia(message);
 
-  const displayName = message.fromMe ? 'Me' : name;
-
-  const entry = await addChatMessage({
+  const { message: entry } = await addChatMessage({
     msgId: message.id._serialized,
-    sender: displayName,
+    sender: message.fromMe ? 'Me' : name,
     senderId: conversationId,
-    body,
-    type,
+    body: message.body || '',
+    type: message.type,
     mediaUrl,
-    ts
+    ts: message.timestamp ? message.timestamp * 1000 : Date.now()
   });
+
+  // Always emit — the dashboard upserts by msgId. WhatsApp Web re-delivers the
+  // same message (ciphertext first, then the decrypted version with its media),
+  // and an upsert turns that into a refresh instead of a duplicate bubble.
   logBus.emit('chat_message', entry);
+  return entry;
 }
 
 async function sendReply(message, text) {
@@ -137,12 +150,46 @@ async function sendReply(message, text) {
 }
 
 // ── WhatsApp client ───────────────────────────────────────────────────────────
-const headless      = process.env.HEADLESS !== 'false';   // default true on server
-const browserPath   = (process.env.BROWSER_PATH || '').trim();
-const resolvedBrowserPath = browserPath && fs.pathExistsSync(browserPath) ? browserPath : null;
+const headless = process.env.HEADLESS !== 'false';   // default true on server
 
-if (browserPath && !resolvedBrowserPath) {
-  logger.warn(`BROWSER_PATH is set but not found: ${browserPath} — falling back to Puppeteer's default browser lookup.`);
+// Where a browser might live. BROWSER_PATH wins; the rest is auto-detection, so
+// a fresh server install works even if .env was never filled in. This matters
+// because the installer skips Puppeteer's own Chromium download — without a
+// system browser the client would otherwise retry forever with
+// "Could not find Chrome".
+const BROWSER_CANDIDATES = [
+  process.env.BROWSER_PATH,
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/google-chrome',
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+  '/snap/bin/chromium',
+  '/opt/google/chrome/chrome',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+].map(p => (p || '').trim()).filter(Boolean);
+
+function resolveBrowserPath() {
+  for (const candidate of BROWSER_CANDIDATES) {
+    try { if (fs.pathExistsSync(candidate)) return candidate; } catch (_) { /* keep looking */ }
+  }
+  return null;
+}
+
+const resolvedBrowserPath = resolveBrowserPath();
+
+if (resolvedBrowserPath) {
+  logger.info(`Using browser: ${resolvedBrowserPath}`);
+} else {
+  const hint = process.env.BROWSER_PATH
+    ? `BROWSER_PATH="${process.env.BROWSER_PATH}" does not exist.`
+    : 'No system Chrome/Chromium found.';
+  logger.warn(
+    `${hint} Falling back to Puppeteer's bundled browser. ` +
+    'If the bot keeps failing to start, install Chrome or Chromium and set ' +
+    'BROWSER_PATH in .env to its full path.'
+  );
 }
 
 const client = new Client({
@@ -167,6 +214,12 @@ const client = new Client({
     ]
   }
 });
+
+// Recovery from a profile left locked by a previous, crashed run — see
+// src/utils/browserLock.js.
+const AUTH_SESSION_DIR = sessionDir();
+const orphanBrowsers   = () => killOrphanBrowsers(AUTH_SESSION_DIR);
+const clearStaleLock   = () => clearStaleProfileLock(AUTH_SESSION_DIR);
 
 // ── init/reconnect with backoff ──────────────────────────────────────────────
 let initializing = false;
@@ -201,19 +254,24 @@ async function initializeClient(reason) {
     const msg = err?.message || String(err);
     logger.error(`Client initialize failed: ${msg}`);
     try { await client.destroy(); } catch (_) {}
+
+    // A locked profile is not worth backing off over — clear it and retry now,
+    // otherwise the exponential backoff just stretches out a guaranteed failure.
+    if (/already running|SingletonLock/i.test(msg)) {
+      await orphanBrowsers();
+      if (await clearStaleLock()) retryDelayMs = 5_000;
+    }
     scheduleInitialize('init failed');
   } finally {
     initializing = false;
   }
 }
 
-// ── Capture all incoming messages for view-once/ephemeral media ─────────────
-client.on('message', async message => {
-  // Only process incoming (not from self)
-  if (!message.fromMe) {
-    captureMessage(message).catch(() => {});
-  }
-});
+// NOTE: there is deliberately no `client.on('message')` capture handler.
+// whatsapp-web.js emits `message_create` for EVERY new message (including our
+// own) and then emits `message` again for the incoming ones, so capturing in
+// both places stored every received message twice. `message_create` below is
+// the single capture point. (Client.js:477 then :486)
 
 // ── lifecycle events ──────────────────────────────────────────────────────────
 client.on('qr', qr => {
@@ -250,19 +308,76 @@ client.on('disconnected', reason => {
   scheduleInitialize(`disconnected: ${reason}`);
 });
 
-// ── Message revocation (anti-delete) handler ────────────────────────
-client.on('message_revoke_everyone', async (after, before) => {
-  try {
-    const msgId = after.id._serialized;
-    logger.info(`Message revoked: ${msgId}`);
-    const { revokeMessage } = require('../services/chatStore');
+// ── Message revocation (anti-delete) ─────────────────────────────────────────
+/**
+ * Mark a revoked message as deleted, keeping the original body and media.
+ *
+ * The event's two arguments are unreliable (see revokeResolver.js), so we
+ * resolve every id the event could refer to and mark the first one we have on
+ * record. If we have none — the bot was offline, or WhatsApp Web never handed
+ * us the message — and `recover` is set, we reconstruct the message from the
+ * pre-revocation snapshot so the deletion still shows up in the dashboard.
+ *
+ * @param {object}      after   post-revocation Message
+ * @param {object|null} before  pre-revocation snapshot (holds the original text)
+ * @param {'everyone'|'me'} source
+ * @param {boolean}     recover  store a synthetic entry when nothing matched
+ */
+async function handleRevoke(after, before, source, recover) {
+  const ids = resolveRevokeIds(after, before);
+  if (!ids.length) {
+    logger.warn(`Revoke event (${source}) had no usable message id — ignored.`);
+    return;
+  }
+
+  for (const msgId of ids) {
     const updated = await revokeMessage(msgId);
     if (updated) {
-      logBus.emit('chat_message_revoked', { msgId, deletedAt: updated.deletedAt });
+      logBus.emit('chat_message_revoked', updated);
+      logger.info(`Message revoked (${source}): ${msgId}`);
+      return;
     }
-  } catch (err) {
-    logger.error(`Error handling message revoke: ${err.message}`);
   }
+
+  if (!recover) {
+    logger.info(`Message removed (${source}) but never captured: ${ids[0]}`);
+    return;
+  }
+
+  // Never captured it — rebuild from the snapshot that still has the content.
+  const original = before || after;
+  const info     = describeMessage(original);
+  if (!info || (!info.body && !info.hasMedia)) {
+    logger.warn(`Revoke (${source}) for unknown message with no recoverable content: ${ids[0]}`);
+    return;
+  }
+
+  const entry = await markDeleted({
+    msgId:    ids[0],
+    sender:   info.sender,
+    senderId: info.senderId,
+    body:     info.body,
+    type:     info.type,
+    mediaUrl: await saveMedia(original),
+    ts:       info.ts,
+  });
+
+  logBus.emit('chat_message_revoked', entry);
+  logger.info(`Message revoked (${source}), recovered from snapshot: ${ids[0]}`);
+}
+
+// Deleted for everyone — the classic anti-delete case.
+client.on('message_revoke_everyone', (after, before) => {
+  handleRevoke(after, before, 'everyone', true)
+    .catch(err => logger.error(`Revoke handler failed: ${err.message}`));
+});
+
+// Deleted for me — the account owner deleting from their own phone. Only ever
+// flags a message we already hold; WhatsApp Web also fires this when a chat is
+// cleared, and inventing entries for those would flood the dashboard.
+client.on('message_revoke_me', message => {
+  handleRevoke(message, null, 'me', false)
+    .catch(err => logger.error(`Revoke-me handler failed: ${err.message}`));
 });
 
 // ── message handler ───────────────────────────────────────────────────────────
@@ -309,6 +424,9 @@ client.on('message_create', async message => {
   logger.info('Starting WhatsApp agent…');
   const autoPilot = getAutoPilotState();
   logger.info(`Auto Pilot is ${autoPilot.enabled ? 'enabled' : 'disabled'}`);
+  // Recover from a crash/reboot that left the browser and its profile lock behind.
+  await orphanBrowsers();
+  await clearStaleLock();
   initializeClient('startup');
 })().catch(err => {
   logger.error(`Fatal bot startup: ${err.message}\n${err.stack}`);

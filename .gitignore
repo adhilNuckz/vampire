@@ -12,6 +12,11 @@ node_modules/
 logs/
 *.log
 
+# Local database (SQLite fallback) — machine-specific, never share
+data/vampire.db
+data/*.db
+data/*.db-journal
+
 # Temp audio files
 /tmp/wa_agent_audio/
 

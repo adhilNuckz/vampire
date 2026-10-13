@@ -25,7 +25,8 @@ require('dotenv').config();
 const app    = express();
 const server = http.createServer(app);
 const io     = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST', 'DELETE'] } });
-const PORT   = parseInt(process.env.DASHBOARD_PORT || '5555', 10);
+const PORT   = parseInt(process.env.DASHBOARD_PORT || '5050', 10);
+const HOST   = process.env.DASHBOARD_HOST || '0.0.0.0';
 const LOG_DIR = process.env.LOG_DIR || './logs';
 
 app.use(cors());
@@ -208,7 +209,8 @@ app.delete('/api/schedule/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// Scheduler tick — every 15 s
+// Scheduler tick — every 15 s. Unref'd so this timer is never the reason the
+// process refuses to exit (the HTTP server is what keeps it alive in prod).
 setInterval(async () => {
   const now = Date.now();
   for (const job of schedules) {
@@ -225,9 +227,20 @@ setInterval(async () => {
     }
     io.emit('schedule_update', schedules);
   }
-}, 15_000);
+}, 15_000).unref();
 
 // ── Start ─────────────────────────────────────────────────────
-server.listen(PORT, () => logger.info(`Dashboard → http://0.0.0.0:${PORT}`));
+server.listen(PORT, HOST, () => {
+  logger.info(`Dashboard → http://${HOST}:${PORT}`);
+  logger.info(`Open  http://<server-ip>:${PORT}  in your browser to scan the WhatsApp QR code.`);
+});
+
+server.on('error', err => {
+  if (err.code === 'EADDRINUSE') {
+    logger.error(`Port ${PORT} is already in use — set DASHBOARD_PORT in .env to a free port.`);
+    process.exit(1);
+  }
+  logger.error(`Dashboard server error: ${err.message}`);
+});
 
 module.exports = { app, server, io };

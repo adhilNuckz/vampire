@@ -1358,36 +1358,65 @@ function renderChatMessages() {
   container.scrollTop = container.scrollHeight;
 }
 
-// Real-time new message
+// Real-time new message (also fires for an enriched re-delivery of a message
+// we already hold — e.g. a ciphertext message that just decrypted — so upsert
+// by msgId rather than blindly appending).
 socket.on('new_chat_message', msg => {
-  if (!chatsData.some(m => m.msgId === msg.msgId)) {
+  if (!msg?.msgId) return;
+
+  const existing = chatsData.find(m => m.msgId === msg.msgId);
+  if (existing) {
+    Object.assign(existing, msg);
+  } else {
     chatsData.push(msg);
-    renderChatSidebar();
-    if (activeChatId && (msg.senderId || msg.sender || 'unknown') === activeChatId) {
-      renderChatMessages();
-    }
-    // Also refresh messages tab if visible
-    if (document.getElementById('nav-messages').classList.contains('active')) {
-      appendMessageEntry(msg);
-      updateMsgCount();
-    }
+  }
+
+  renderChatSidebar();
+  if (activeChatId && (msg.senderId || msg.sender || 'unknown') === activeChatId) {
+    renderChatMessages();
+  }
+
+  // Also refresh messages tab if visible
+  if (document.getElementById('nav-messages')?.classList.contains('active')) {
+    const flat = allMessages.find(m => m.msgId === msg.msgId);
+    if (flat) renderMessageList();   // re-render: body/media may have changed
+    else appendMessageEntry(msg);
+    updateMsgCount();
   }
 });
 
-// Real-time revoke
+// Real-time revoke — `data` is the full stored entry, so this also covers a
+// deletion recovered for a message that was never captured in the first place.
 socket.on('chat_message_revoked', data => {
-  const m = chatsData.find(x => x.msgId === data.msgId);
+  if (!data?.msgId) return;
+
+  let m = chatsData.find(x => x.msgId === data.msgId);
   if (m) {
     m.isDeleted = true;
     m.deletedAt = data.deletedAt;
-    renderChatSidebar();
-    if (activeChatId && (m.senderId || m.sender || 'unknown') === activeChatId) {
-      renderChatMessages();
-    }
-    // Update flat message list if visible
-    const el = document.getElementById(`mentry-${data.msgId}`);
-    if (el) markMessageDeleted(el, m);
+  } else {
+    m = data;
+    chatsData.push(m);
   }
+
+  const flat = allMessages.find(x => x.msgId === data.msgId);
+  if (flat) {
+    flat.isDeleted = true;
+    flat.deletedAt = data.deletedAt;
+  } else {
+    allMessages.unshift(data);
+  }
+
+  renderChatSidebar();
+  if (activeChatId && (m.senderId || m.sender || 'unknown') === activeChatId) {
+    renderChatMessages();
+  }
+
+  // Update the flat message list, preserving scroll position where possible
+  const el = document.getElementById(`mentry-${safeMsgId(data.msgId)}`);
+  if (el) markMessageDeleted(el, m);
+  else if (document.getElementById('nav-messages')?.classList.contains('active')) renderMessageList();
+  updateMsgCount();
 });
 
 // Chat search
@@ -1457,6 +1486,15 @@ function renderMessageList() {
   list.innerHTML = filtered.map(m => buildMsgEntry(m)).join('');
 }
 
+/**
+ * WhatsApp message ids look like `false_94783811114@c.us_3EB0…`, which is not a
+ * valid DOM id. Every place that builds or looks up an `mentry-…` element must
+ * go through this, or the live revoke update silently misses its target.
+ */
+function safeMsgId(msgId) {
+  return String(msgId || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
 function buildMsgEntry(m) {
   const bodyHtml = m.isDeleted
     ? `<span class="msg-text deleted-text">${escHtml(m.body || '(no content)')}</span>`
@@ -1469,10 +1507,10 @@ function buildMsgEntry(m) {
     ? `<span class="msg-type-tag">${escHtml(m.type)}</span>`
     : '';
 
-  const safeMsgId = (m.msgId || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const domId = safeMsgId(m.msgId);
 
   return `
-    <div class="msg-entry${m.isDeleted ? ' deleted' : ''}" id="mentry-${safeMsgId}">
+    <div class="msg-entry${m.isDeleted ? ' deleted' : ''}" id="mentry-${domId}">
       <div class="msg-avatar-sm">${escHtml(getInitials(m.sender || '?'))}</div>
       <div class="msg-entry-body">
         <div class="msg-entry-top">
