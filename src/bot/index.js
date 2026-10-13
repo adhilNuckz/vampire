@@ -23,7 +23,7 @@ const { logger, logBus }    = require('../utils/logger');
 const { generateAutoReply } = require('../services/processor');
 const { setClient }         = require('../services/whatsappClient');
 const { addMessage: addChatMessage, revokeMessage, markDeleted } = require('../services/chatStore');
-const { resolveRevokeIds, describeMessage } = require('../services/revokeResolver');
+const { resolveRevokeIds, describeMessage, messageIdOf } = require('../services/revokeResolver');
 const { sessionDir, killOrphanBrowsers, clearStaleProfileLock } = require('../utils/browserLock');
 const { getAutoPilotState } = require('../services/autopilot');
 require('dotenv').config();
@@ -98,6 +98,10 @@ async function saveMedia(message) {
   }
 }
 
+// Only warn once per session — a build that cannot supply ids would otherwise
+// log on every single message.
+let warnedMissingId = false;
+
 /** Channels/newsletters and groups are not part of the dashboard history. */
 function isIgnoredChat(message) {
   const chatJid = message.fromMe ? message.to : message.from;
@@ -124,8 +128,16 @@ async function captureMessage(message) {
   // Save any media if present (including view-once, ephemeral, etc.)
   const mediaUrl = await saveMedia(message);
 
+  // messageIdOf(), not message.id._serialized — see revokeResolver.js. Without
+  // this the id can come back undefined and every message stores an empty one.
+  const msgId = messageIdOf(message);
+  if (!msgId && !warnedMissingId) {
+    warnedMissingId = true;
+    logger.warn('Could not determine a message id — de-duplication and deleted-message tracking will not work for these messages.');
+  }
+
   const { message: entry } = await addChatMessage({
-    msgId: message.id._serialized,
+    msgId,
     sender: message.fromMe ? 'Me' : name,
     senderId: conversationId,
     body: message.body || '',
@@ -395,14 +407,22 @@ client.on('message_create', async message => {
 
     if (message.fromMe) return;
 
-    const senderId  = parseSenderId(message.from);
-    const chat      = await message.getChat();
-    const body = message.body || '';
-    if (message.type !== 'chat' || chat.isGroup || message.from?.endsWith('@g.us')) return;
+    const senderId = parseSenderId(message.from);
+    const body     = message.body || '';
+
+    // Cheap, store-free filters first. message.getChat() is a round-trip into
+    // the browser that throws on some builds (LID-addressed chats especially),
+    // so it must not gate every incoming message — it used to run even with
+    // Auto Pilot off, erroring on each one and logging a stack trace.
+    if (message.type !== 'chat') return;
+    if (message.from?.endsWith('@g.us')) return;
     if (!body.trim()) return;
 
     const autopilot = getAutoPilotState();
     if (!autopilot.enabled) return;
+
+    const chat = await message.getChat().catch(() => null);
+    if (!chat || chat.isGroup) return;
 
     const contact = await message.getContact().catch(() => ({}));
     const chatName = chat.name || contact.pushname || contact.name || senderId;

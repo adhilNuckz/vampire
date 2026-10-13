@@ -56,6 +56,30 @@ function serializedFromKey(key) {
 }
 
 /**
+ * The canonical serialized id of a message, for storage and later matching.
+ *
+ * Must NOT simply read `msg.id._serialized`. On the current WhatsApp Web build
+ * the library rebuilds `msg.id` with `Object.assign({}, msg.id, { remote })`
+ * (Injected/Utils.js `getMessageModel`), and `_serialized` is a computed getter
+ * rather than an own property — so it is dropped by the copy and comes back
+ * `undefined`. Every captured message then stored an empty id, which silently
+ * disabled de-duplication and made it impossible to match a later deletion.
+ *
+ * Rebuilding from `{fromMe, remote, id}` yields exactly the string WhatsApp
+ * uses, and it is the same function the revoke side resolves against, so both
+ * ends are guaranteed to agree.
+ *
+ * @param {object} msg a whatsapp-web.js Message
+ * @returns {string} '' when no id can be determined
+ */
+function messageIdOf(msg) {
+  const id = msg?.id;
+  if (!id) return '';
+  if (typeof id === 'string') return id;
+  return serializedFromKey(id) || '';
+}
+
+/**
  * Every id this message could be known by, most-trusted first.
  * @returns {string[]} unique, non-empty
  */
@@ -118,6 +142,7 @@ module.exports = {
   parseSerializedId,
   jidOf,
   serializedFromKey,
+  messageIdOf,
   idCandidates,
   resolveRevokeIds,
   describeMessage,

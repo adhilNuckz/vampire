@@ -23,7 +23,8 @@ process.chdir(sandbox);
 fs.mkdirSync(path.join(sandbox, 'data'), { recursive: true });
 
 const {
-  resolveRevokeIds, idCandidates, parseSerializedId, serializedFromKey, describeMessage,
+  resolveRevokeIds, idCandidates, parseSerializedId, serializedFromKey, messageIdOf,
+  describeMessage,
 } = require('../src/services/revokeResolver');
 const chatStore = require('../src/services/chatStore');
 
@@ -97,6 +98,49 @@ test('resolveRevokeIds copes with the undefined revoked_msg the library warns ab
   const after = mkMessage();
   assert.deepStrictEqual(resolveRevokeIds(after, undefined), [`false_${SENDER}_${RAW_ID}`]);
   assert.deepStrictEqual(resolveRevokeIds(undefined, undefined), []);
+});
+
+// ── messageIdOf ──────────────────────────────────────────────────────────────
+// On the current WhatsApp Web build the library's getMessageModel rebuilds the
+// id with Object.assign, which drops the `_serialized` getter. Capturing via
+// message.id._serialized then stored an EMPTY id for every message, which broke
+// de-duplication and made deletions unmatchable. Rebuilding from the parts is
+// what makes capture and revoke agree.
+
+test('messageIdOf uses _serialized when the build provides it', () => {
+  assert.strictEqual(messageIdOf(mkMessage()), `false_${SENDER}_${RAW_ID}`);
+});
+
+test('messageIdOf rebuilds the id when _serialized is missing', () => {
+  // exactly the shape Object.assign({}, msg.id, {remote}) produces
+  const msg = mkMessage({ id: { fromMe: false, remote: SENDER, id: RAW_ID } });
+  assert.strictEqual(messageIdOf(msg), `false_${SENDER}_${RAW_ID}`);
+});
+
+test('messageIdOf rebuilds the id when remote is an un-serialized Wid', () => {
+  const msg = mkMessage({ id: { fromMe: true, remote: { _serialized: OTHER }, id: RAW_ID } });
+  assert.strictEqual(messageIdOf(msg), `true_${OTHER}_${RAW_ID}`);
+});
+
+test('messageIdOf accepts a bare string id', () => {
+  assert.strictEqual(messageIdOf({ id: 'plain-id' }), 'plain-id');
+});
+
+test('messageIdOf returns "" rather than throwing on junk', () => {
+  assert.strictEqual(messageIdOf(null), '');
+  assert.strictEqual(messageIdOf({}), '');
+  assert.strictEqual(messageIdOf({ id: {} }), '');
+  assert.strictEqual(messageIdOf({ id: { fromMe: false, id: RAW_ID } }), ''); // no remote
+});
+
+test('a captured id round-trips: what capture stores, a revoke can match', () => {
+  // This is the property that actually matters end to end.
+  const storedId = messageIdOf(mkMessage({ id: { fromMe: false, remote: SENDER, id: RAW_ID } }));
+  const revokedId = resolveRevokeIds(
+    mkMessage({ id: { fromMe: false, remote: SENDER, id: 'PROTOCOL' } }),
+    mkMessage({ id: { fromMe: false, remote: SENDER, id: RAW_ID } })
+  );
+  assert.ok(revokedId.includes(storedId), `revoke candidates ${revokedId} must include stored ${storedId}`);
 });
 
 test('describeMessage keeps the original body and marks the sender', () => {
