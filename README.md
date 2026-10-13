@@ -177,6 +177,43 @@ receives `chat_message_revoked` with the original body intact.
 
 ---
 
+## Troubleshooting
+
+### The bot authenticates but never receives messages
+
+Symptom: the log shows `WhatsApp authenticated ✅` and then nothing. Never
+`WhatsApp agent READY 🚀`. No messages arrive, the dashboard stays empty, and
+**no error is logged** — the failure happens inside a browser callback and never
+reaches Node.
+
+Cause: `whatsapp-web.js` drives WhatsApp Web by injecting into the page and
+calling its internal modules by name. WhatsApp changes those names without
+warning, so the library periodically breaks against a new WhatsApp Web build.
+When injection fails the client throws `ready timeout` internally, never emits
+`ready`, and — the part that matters — never attaches its message listeners, so
+there is nothing to receive messages with.
+
+Fix: update the library.
+
+```bash
+cd /opt/vampire
+PUPPETEER_SKIP_DOWNLOAD=true npm install whatsapp-web.js@latest --omit=dev
+pm2 restart vampire --update-env
+```
+
+Then confirm `WhatsApp agent READY 🚀` appears in `pm2 logs vampire`. This is
+worth trying first for almost any "connected but silent" symptom — it has
+already bitten this project once (1.34.6 against WhatsApp Web `2.3000.1050182637`,
+where `WAWebSetPushnameConnAction` had been removed and `ExposeStore` threw
+`Cannot read properties of undefined (reading 'setPushname')`).
+
+To diagnose it yourself: the bot's browser exposes a DevTools endpoint on
+`127.0.0.1` (find it in `ss -ltnp | grep chrome`). Attaching with
+`puppeteer.connect({ browserURL })` lets you evaluate in the live page and see
+what the library sees.
+
+---
+
 ## Configuration
 
 All settings live in `.env` (created by the installer; see `.env.example`).
