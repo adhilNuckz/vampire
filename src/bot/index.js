@@ -24,6 +24,7 @@ const { generateAutoReply } = require('../services/processor');
 const { setClient }         = require('../services/whatsappClient');
 const { addMessage: addChatMessage, revokeMessage, markDeleted } = require('../services/chatStore');
 const { resolveRevokeIds, describeMessage, messageIdOf } = require('../services/revokeResolver');
+const { isIgnoredChat } = require('../services/messageFilter');
 const { sessionDir, killOrphanBrowsers, clearStaleProfileLock } = require('../utils/browserLock');
 const { getAutoPilotState } = require('../services/autopilot');
 require('dotenv').config();
@@ -101,17 +102,6 @@ async function saveMedia(message) {
 // Only warn once per session — a build that cannot supply ids would otherwise
 // log on every single message.
 let warnedMissingId = false;
-
-/** Channels/newsletters and groups are not part of the dashboard history. */
-function isIgnoredChat(message) {
-  const chatJid = message.fromMe ? message.to : message.from;
-  return Boolean(
-    message.from?.endsWith('@newsletter') ||
-    message.type === 'newsletter' ||
-    (message.author === null && message.from?.endsWith('@broadcast')) ||
-    chatJid?.endsWith('@g.us')
-  );
-}
 
 async function captureMessage(message) {
   if (isIgnoredChat(message)) return null;
@@ -395,12 +385,9 @@ client.on('message_revoke_me', message => {
 // ── message handler ───────────────────────────────────────────────────────────
 client.on('message_create', async message => {
   try {
-    // Skip WhatsApp Channels / Newsletters — their chat object crashes on getChat()
-    if (
-      message.from?.endsWith('@newsletter') ||
-      message.type === 'newsletter' ||
-      message.author === null && message.from?.endsWith('@broadcast')
-    ) return;
+    // One filter for both paths: groups, Channels, Status and system
+    // notifications are neither archived nor acted on.
+    if (isIgnoredChat(message)) return;
 
     // ── capture message (incoming & outgoing) ────────────────────────────
     captureMessage(message).catch(() => {});
