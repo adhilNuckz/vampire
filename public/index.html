@@ -296,8 +296,13 @@
       background: #fff; padding: 28px; border-radius: 14px;
       text-align: center; color: #000;
     }
-    #qr-box pre { font-family: monospace; font-size: 7px; line-height: 1; }
-    #qr-box p { margin-top: 12px; font-size: 13px; color: #444; }
+    #qr-box img {
+      display: block; width: 260px; height: 260px;
+      margin: 14px auto 0; border-radius: 8px;
+      background: #fff;
+    }
+    #qr-box .qr-hint { margin-top: 12px; font-size: 13px; color: #444; }
+    #qr-box .qr-status { margin-top: 10px; font-size: 12px; color: #888; }
 
     /* ══════════════════════════════════════════════════════════
        CHATS SECTION — WhatsApp Web style
@@ -733,8 +738,9 @@
 <div id="qr-overlay">
   <div id="qr-box">
     <p><strong>Scan with WhatsApp</strong></p>
-    <pre id="qr-pre"></pre>
-    <p>Open WhatsApp → Linked Devices → Link a Device</p>
+    <img id="qr-img" alt="WhatsApp login QR code" />
+    <p class="qr-hint">Open WhatsApp → Linked Devices → Link a Device</p>
+    <p class="qr-status" id="qr-status">Waiting for a QR code…</p>
   </div>
 </div>
 
@@ -1085,8 +1091,21 @@ socket.on('disconnect', () => {
   document.getElementById('status-dot').className = 'status-dot';
   document.getElementById('status-text').textContent = 'Disconnected';
 });
-socket.on('qr', qr => {
-  document.getElementById('qr-pre').textContent = qr;
+// The server sends { data, image }, where `image` is a rendered QR data URL.
+// A bare string is accepted too so an older server still shows something.
+socket.on('qr', payload => {
+  const image = typeof payload === 'string' ? null : payload?.image;
+  const img   = document.getElementById('qr-img');
+  const note  = document.getElementById('qr-status');
+
+  if (image) {
+    img.src = image;
+    img.style.display = 'block';
+    note.textContent = 'Code refreshes automatically — scan the current one.';
+  } else {
+    img.style.display = 'none';
+    note.textContent = 'Could not render the QR image; reload the page.';
+  }
   document.getElementById('qr-overlay').classList.add('show');
 });
 socket.on('autopilot_update', state => renderAutopilotState(Boolean(state?.enabled)));

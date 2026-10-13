@@ -15,6 +15,7 @@ const fs         = require('fs-extra');
 const http       = require('http');
 const { Server } = require('socket.io');
 const cors       = require('cors');
+const QRCode     = require('qrcode');
 const { logger, logBus }          = require('../utils/logger');
 const { sendWhatsApp, getClient } = require('../services/whatsappClient');
 const { getMessages: getChatMessages } = require('../services/chatStore');
@@ -35,14 +36,41 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../../public')));
 
 // ── Socket.IO bridge ──────────────────────────────────────────
-logBus.on('status',               status => io.emit('status',               status));
-logBus.on('qr',                   qr     => io.emit('qr',                   qr));
+let lastQr = null;   // { data, image } — replayed to clients that connect late
+
+logBus.on('status', status => {
+  // Once we are authenticated the QR is spent; don't replay it on reconnect.
+  if (status?.connected) lastQr = null;
+  io.emit('status', status);
+});
+
+logBus.on('qr', async data => {
+  try {
+    // The payload is a ~240-char string, useless as text — render it as an
+    // image. Done here rather than in the browser so the page needs no CDN
+    // and still works on a server with no outbound access.
+    const image = await QRCode.toDataURL(data, {
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      width: 512,        // downscaled by CSS → crisp on high-DPI screens
+    });
+    lastQr = { data, image };
+    io.emit('qr', lastQr);
+  } catch (err) {
+    logger.error(`Could not render QR image: ${err.message}`);
+    io.emit('qr', { data, image: null });
+  }
+});
+
 logBus.on('chat_message',         msg    => io.emit('new_chat_message',      msg));
 logBus.on('chat_message_revoked', data   => io.emit('chat_message_revoked',  data));
 logBus.on('log',                  entry  => io.emit('log',                  entry));
 
 io.on('connection', socket => {
   logger.info(`Dashboard client connected: ${socket.id}`);
+  // A client that connects after the QR was issued must still see it —
+  // Socket.IO does not replay past events.
+  if (lastQr) socket.emit('qr', lastQr);
   socket.on('disconnect', () => logger.info(`Dashboard client left: ${socket.id}`));
 });
 

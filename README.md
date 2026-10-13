@@ -34,6 +34,15 @@ and scan the QR code shown on the page with WhatsApp
 (**Settings → Linked Devices → Link a Device**). The scan is a one-time step —
 the session persists in `.wwebjs_auth/`.
 
+The QR is rendered **server-side** into a PNG and pushed over Socket.IO, so the
+page needs no CDN or outbound access of its own, and the code stays visible
+after a reconnect. It refreshes itself as WhatsApp rotates it; once you are
+authenticated the overlay disappears and is not shown again.
+
+> **Upgrading from an earlier version?** Run the installer again (it pulls the
+> code and installs the new `qrcode` dependency), or manually:
+> `git pull && npm install && pm2 restart vampire --update-env`.
+
 ### Options
 
 Any of these can be set on the same line, e.g.

@@ -43,6 +43,31 @@ function once(socket, event, timeout = 5000) {
   });
 }
 
+/** Resolve if `event` does NOT arrive within `ms`; reject if it does. */
+function noEvent(socket, event, ms = 700) {
+  return new Promise((resolve, reject) => {
+    const onEvent = () => { clearTimeout(timer); reject(new Error(`unexpected '${event}'`)); };
+    const timer = setTimeout(() => { socket.off(event, onEvent); resolve(); }, ms);
+    socket.once(event, onEvent);
+  });
+}
+
+/**
+ * Open a second socket, as a second browser tab would.
+ *
+ * `register` runs BEFORE the connection completes: the server pushes cached
+ * state (the QR) immediately on connect, so a listener attached afterwards
+ * would miss it entirely and the test would pass or fail on timing.
+ */
+function connectClient(register) {
+  return new Promise((resolve, reject) => {
+    const socket = ioClient(BASE, { transports: ['websocket'], reconnection: false });
+    const pending = register?.(socket);
+    socket.once('connect', () => resolve({ socket, pending }));
+    socket.once('connect_error', reject);
+  });
+}
+
 let socket;
 
 test.before(async () => {
@@ -141,6 +166,46 @@ test('the full revoke handler recovers a message that was never captured', async
   const found = body.messages.find(m => m.msgId === originalId);
   assert.ok(found, 'recovered deletion must appear in /api/chats');
   assert.strictEqual(found.isDeleted, true);
+});
+
+// ── QR hand-off ──────────────────────────────────────────────────────────────
+// The QR payload WhatsApp sends is a ~240-char opaque string. Showing that as
+// text is unscannable, so the server must deliver a rendered image instead.
+
+const QR_PAYLOAD = `2@${'aB3xZ9'.repeat(38)},1`;
+
+test('a QR is delivered to the browser as a rendered PNG, not raw text', async () => {
+  const waiting = once(socket, 'qr');
+  logBus.emit('qr', QR_PAYLOAD);
+
+  const payload = await waiting;
+  assert.strictEqual(payload.data, QR_PAYLOAD, 'raw payload kept for reference');
+  assert.match(payload.image, /^data:image\/png;base64,/, 'must be a renderable image');
+  assert.ok(payload.image.length > 1000, 'a real QR image, not a 1px placeholder');
+});
+
+test('a browser that connects after the QR was issued still receives it', async () => {
+  // Socket.IO does not replay past events, so the server has to cache the last
+  // QR — otherwise opening the dashboard a moment too late shows an empty box.
+  const { socket: late, pending } = await connectClient(s => once(s, 'qr'));
+  try {
+    const payload = await pending;
+    assert.strictEqual(payload.data, QR_PAYLOAD);
+    assert.match(payload.image, /^data:image\/png;base64,/);
+  } finally {
+    late.close();
+  }
+});
+
+test('the cached QR is dropped once the session is authenticated', async () => {
+  logBus.emit('status', { connected: true, message: 'Authenticated' });
+
+  const { socket: late, pending } = await connectClient(s => noEvent(s, 'qr'));
+  try {
+    await pending;   // resolves only because nothing was replayed
+  } finally {
+    late.close();
+  }
 });
 
 test('a re-delivered message does not produce a duplicate in /api/chats', async () => {
